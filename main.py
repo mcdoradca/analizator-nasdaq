@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import pandas_ta as ta
-from pydantic import BaseModel
+from pantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 # --- Importy Agentów i Modułów ---
@@ -14,7 +14,8 @@ from data_fetcher import DataFetcher, transform_to_dataframe
 from portfolio_manager import PortfolioManager
 from selection_agent import run_market_scan
 from zlota_liga_agent import run_golden_league_analysis
-from szybka_liga_agent import run_quick_league_scan
+# UWAGA: Zmieniamy import, aby mieć dostęp do poszczególnych agentów
+from szybka_liga_agent import run_quick_league_scan, agent_sygnalu, agent_potwierdzenia, agent_historyczny
 from backtesting_agent import run_backtest
 from macro_agent import get_macro_climate_analysis, get_market_barometer
 from cockpit_agent import analyze_cockpit_data
@@ -105,10 +106,22 @@ async def api_close_position(payload: ClosePositionPayload):
     
 @app.get("/api/run_backtest")
 async def api_run_backtest(period: int = 365, risk_level: int = 2):
+    """
+    Przebudowany endpoint do uruchamiania backtestu.
+    Teraz przekazuje logikę agentów jako argument, aby uniknąć cyklicznych importów.
+    """
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
         raise HTTPException(status_code=400, detail="Dream Team jest pusty.")
-    return run_backtest(tickers, period, risk_level, data_fetcher)
+    
+    # Przygotowujemy słownik z logiką strategii
+    strategy_logic = {
+        'sygnalu': agent_sygnalu,
+        'potwierdzenia': agent_potwierdzenia,
+        'historyczny': agent_historyczny
+    }
+    
+    return run_backtest(tickers, period, risk_level, data_fetcher, strategy_logic)
 
 @app.get("/api/full_analysis/{ticker}")
 async def api_full_analysis(ticker: str):
@@ -141,12 +154,11 @@ async def api_full_analysis(ticker: str):
     risk_analysis = analyze_single_stock_risk(stock_df, market_df, overview_data)
     
     # 5. Przygotowanie finalnej odpowiedzi
-    # Wybieramy ostatni wiersz z DataFrame, aby uzyskać najnowsze wartości wskaźników
     latest_indicators = stock_df.iloc[-1].to_dict()
 
     return {
         "overview": overview_data,
-        "daily": daily_data_json, # Przesyłamy też surowe dane dla wykresów
+        "daily": daily_data_json,
         "risk": risk_analysis,
         "indicators": {
             "rsi": latest_indicators.get('RSI_14'),
