@@ -1,132 +1,148 @@
+# -*- coding: utf-8 -*-
+"""
+Moduł Agenta Ryzyka "Cerber".
 
+Odpowiedzialność: Analiza ryzyka portfela, w szczególności korelacji
+między aktywami, aby zapobiegać nadmiernej koncentracji.
 """
-Nowy Agent Ryzyka "Cerber"
-Analizuje ryzyko portfela pod kątem korelacji między aktywami.
-"""
-from typing import Dict, List, Tuple
+
+from typing import Dict, Optional
 import pandas as pd
 from itertools import combinations
-from src.data_fetcher import data_fetcher
+import os
 
-def fetch_historical_data(ticker: str, days: int = 100) -> pd.DataFrame:
-    """Pobiera dane historyczne dla pojedynczego tickera."""
-    if not data_fetcher:
-        return pd.DataFrame()
-    
-    params = {
-        "function": "TIME_SERIES_DAILY",
-        "symbol": ticker,
-        "outputsize": "compact"
-    }
-    
-    data = data_fetcher.get_data(params)
-    if not data or "Time Series (Daily)" not in data:
-        print(f"WARNING: Nie udało się pobrać danych dla {ticker}")
-        return pd.DataFrame()
-    
-    time_series = data["Time Series (Daily)"]
-    df = pd.DataFrame.from_dict(time_series, orient='index', dtype=float)
-    df.columns = ['open', 'high', 'low', 'close', 'volume']
-    df.index = pd.to_datetime(df.index)
-    df = df.sort_index()
-    
-    return df.tail(days)
+# Importy do testowania modułu w izolacji
+from data_fetcher import DataFetcher, transform_to_dataframe
 
-def calculate_returns_correlation(data_a: pd.DataFrame, data_b: pd.DataFrame) -> float:
+def calculate_returns_correlation(data_a: pd.DataFrame, data_b: pd.DataFrame) -> Optional[float]:
     """
     Oblicza korelację Pearsona dla dziennych stóp zwrotu dwóch serii danych.
+    Funkcja została dostosowana do nowej struktury DataFrame z data_fetcher.
+
+    Args:
+        data_a (pd.DataFrame): DataFrame z danymi historycznymi dla pierwszej spółki.
+        data_b (pd.DataFrame): DataFrame z danymi historycznymi dla drugiej spółki.
+
+    Returns:
+        Optional[float]: Współczynnik korelacji lub None w przypadku błędu.
     """
-    if data_a.empty or data_b.empty:
-        return 0.0
-    
-    # Dopasuj daty
-    merged_data = pd.merge(data_a['close'], data_b['close'], 
-                          left_index=True, right_index=True, 
-                          how='inner', suffixes=('_a', '_b'))
-    
-    if len(merged_data) < 5:  # Minimum 5 punktów danych
-        return 0.0
-    
+    if data_a is None or data_b is None or 'close' not in data_a.columns or 'close' not in data_b.columns:
+        return None
+
+    # Używamy indeksu (daty) do połączenia danych
+    merged_data = pd.merge(data_a['close'], data_b['close'], left_index=True, right_index=True, how='inner', suffixes=('_a', '_b'))
+
+    if len(merged_data) < 2:
+        # Potrzebujemy co najmniej dwóch punktów danych do obliczenia korelacji
+        return None
+
     # Oblicz dzienne stopy zwrotu
     returns = merged_data.pct_change().dropna()
-    
+
+    if returns.empty:
+        return None
+
     # Oblicz korelację
     correlation = returns.iloc[:, 0].corr(returns.iloc[:, 1])
-    return correlation if not pd.isna(correlation) else 0.0
+    return correlation
 
-def analyze_portfolio_risk(tickers: List[str]) -> Dict[str, Any]:
+def analyze_portfolio_risk(portfolio_data: Dict[str, pd.DataFrame]) -> Dict:
     """
     Analizuje ryzyko portfela pod kątem korelacji między aktywami.
+    Implementacja logiki Agenta "Cerber". Wynik jest zgodny z oczekiwaniami frontendu.
+
+    Args:
+        portfolio_data (Dict[str, pd.DataFrame]): Słownik, gdzie klucze to tickery,
+                                                  a wartości to DataFrame'y z ich danymi.
+
+    Returns:
+        Dict: Słownik zawierający analizę ryzyka w formacie dla UI.
     """
-    print(f"INFO: Agent 'Cerber' analizuje ryzyko portfela: {tickers}")
-    
+    print("INFO: Agent 'Cerber' analizuje ryzyko korelacji portfela...")
+    tickers = list(portfolio_data.keys())
+    warnings = []
+
     if len(tickers) < 2:
         return {
-            "average_correlation": 0.0,
-            "correlation_level": "Brak Danych",
-            "color": "text-gray-400",
+            "correlation": 0.0,
+            "level": "Brak Danych",
             "summary": "Portfel musi zawierać co najmniej 2 aktywa do analizy korelacji.",
-            "warnings": []
-        }
-
-    # Pobierz dane historyczne dla wszystkich tickerów
-    portfolio_data = {}
-    for ticker in tickers:
-        df = fetch_historical_data(ticker)
-        if not df.empty:
-            portfolio_data[ticker] = df
-        else:
-            print(f"WARNING: Pominięto {ticker} w analizie ryzyka - brak danych")
-
-    if len(portfolio_data) < 2:
-        return {
-            "average_correlation": 0.0,
-            "correlation_level": "Brak Danych",
-            "color": "text-gray-400",
-            "summary": "Niewystarczająca ilość danych do analizy korelacji.",
-            "warnings": []
+            "color": "text-gray-400"
         }
 
     all_correlations = []
-    warnings = []
+    ticker_pairs = combinations(tickers, 2)
 
-    # Analizuj wszystkie pary
-    for (ticker_a, data_a), (ticker_b, data_b) in combinations(portfolio_data.items(), 2):
+    for ticker_a, ticker_b in ticker_pairs:
+        data_a = portfolio_data.get(ticker_a)
+        data_b = portfolio_data.get(ticker_b)
+
         correlation = calculate_returns_correlation(data_a, data_b)
-        all_correlations.append(correlation)
+        if correlation is not None:
+            all_correlations.append(correlation)
+            if correlation > 0.8:
+                warnings.append(f"Wysoka korelacja ({correlation:.2f}) między {ticker_a} a {ticker_b}.")
 
-        if correlation > 0.8:
-            warnings.append(f"Wysoka korelacja ({correlation:.2f}) między {ticker_a} a {ticker_b}. Ryzyko koncentracji.")
-        elif correlation < -0.6:
-            warnings.append(f"Silna korelacja ujemna ({correlation:.2f}) między {ticker_a} a {ticker_b}. Może zapewniać dywersyfikację.")
+    if not all_correlations:
+         return {
+            "correlation": 0.0,
+            "level": "Błąd Obliczeń",
+            "summary": "Nie można było obliczyć korelacji dla żadnej pary aktywów.",
+            "color": "text-red-500"
+        }
 
-    average_correlation = sum(all_correlations) / len(all_correlations) if all_correlations else 0.0
+    average_correlation = sum(all_correlations) / len(all_correlations)
+    summary = " ".join(warnings) if warnings else "Poziom korelacji w normie. Portfel jest dobrze zdywersyfikowany."
 
-    # Określ poziom ryzyka
+    level = "Niski"
+    color = "text-green-400"
     if average_correlation > 0.7:
-        level, color = "Bardzo Wysoki", "text-red-400"
+        level = "Bardzo Wysoki"
+        color = "text-red-500"
+        summary = "Ryzyko koncentracji jest bardzo wysokie! Spółki w portfelu poruszają się niemal identycznie. " + summary
     elif average_correlation > 0.5:
-        level, color = "Wysoki", "text-orange-400"
+        level = "Wysoki"
+        color = "text-yellow-500"
+        summary = "Podwyższone ryzyko koncentracji. Rozważ dywersyfikację. " + summary
     elif average_correlation > 0.3:
-        level, color = "Umiarkowany", "text-yellow-400"
-    elif average_correlation > -0.3:
-        level, color = "Niski", "text-green-400"
-    else:
-        level, color = "Ujemny (Dywersyfikacja)", "text-blue-400"
+        level = "Umiarkowany"
+        color = "text-blue-400"
 
-    summary = f"Średnia korelacja portfela: {average_correlation:.2f}. {level} poziom korelacji."
-    
-    if average_correlation > 0.6:
-        summary += " Zalecana dywersyfikacja portfela."
-    elif average_correlation < -0.4:
-        summary += " Portfel dobrze zdywersyfikowany."
-
-    print(f"INFO: Analiza ryzyka zakończona. Średnia korelacja: {average_correlation:.2f}")
-    
     return {
-        "average_correlation": round(average_correlation, 2),
-        "correlation_level": level,
-        "color": color,
+        "correlation": average_correlation,
+        "level": level,
         "summary": summary,
-        "warnings": warnings
+        "color": color
     }
+
+# Testowanie modułu po naprawie
+if __name__ == "__main__":
+    API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
+    if not API_KEY:
+        print("OSTRZEŻENIE: Brak klucza ALPHA_VANTAGE_API_KEY. Testy mogą się nie powść.")
+        API_KEY = "TWOJ_KLUCZ_API"
+
+    fetcher = DataFetcher(api_key=API_KEY)
+
+    # Przykładowy portfel do testów
+    test_portfolio_tickers = ["AAPL", "GOOGL", "MSFT"] # Technologiczne, spodziewana wysoka korelacja
+    # test_portfolio_tickers = ["AAPL", "JNJ", "XOM"] # Różne sektory, spodziewana niska korelacja
+    
+    portfolio_dfs = {}
+    print(f"\n--- Test Agenta 'Cerber' dla portfela: {test_portfolio_tickers} ---")
+    for ticker in test_portfolio_tickers:
+        print(f"Pobieranie danych dla {ticker}...")
+        json_data = fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
+        if json_data:
+            df = transform_to_dataframe(json_data)
+            if df is not None:
+                portfolio_dfs[ticker] = df
+
+    if len(portfolio_dfs) == len(test_portfolio_tickers):
+        print("\nPobrano wszystkie dane. Uruchamianie analizy ryzyka...")
+        risk_analysis = analyze_portfolio_risk(portfolio_dfs)
+        import json
+        print("\nWynik analizy 'Cerbera':")
+        print(json.dumps(risk_analysis, indent=2, ensure_ascii=False))
+    else:
+        print("\nNie udało się pobrać danych dla wszystkich spółek. Analiza przerwana.")
