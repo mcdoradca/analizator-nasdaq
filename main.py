@@ -1,107 +1,123 @@
-# main.py
-# Główny plik "silnika" aplikacji. Uruchamia serwer API.
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
+"""
+Główny plik aplikacji FastAPI.
+"""
 import os
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
-# --- PRAWIDŁOWE IMPORTY ---
-from macro_agent import get_macro_climate_analysis
-from risk_agent import analyze_portfolio_risk as get_portfolio_risk_analysis
-from selection_agent import run_market_scan
-from backtesting_agent import run_backtest_simulation
-from portfolio_manager import portfolio_manager
-from data_fetcher import DataFetcher
+# Import naszych modułów
+from src.data_fetcher import DataFetcher, data_fetcher
+from src.analysis.macro_agent import get_macro_climate_analysis
+from src.analysis.selection_agent import run_market_scan
+from src.analysis.backtesting_agent import run_backtest_simulation
+from src.analysis.risk_agent import analyze_portfolio_risk
+from src.portfolio_manager import portfolio_manager
 
-# --- BEZPIECZNE TWORZENIE OBIEKTU DATA FETCHER ---
-data_fetcher = None
-try:
-    print("INFO: Próba odczytania klucza ALPHA_VANTAGE_API_KEY...")
-    api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+# --- INICJALIZACJA APLIKACJI ---
+app = FastAPI(title="Guru Analizator Akcji Nasdaq", version="1.0")
 
-    if not api_key:
-        raise ValueError("FATAL: Zmienna środowiskowa ALPHA_VANTAGE_API_KEY nie jest ustawiona. Aplikacja nie może wystartować.")
-
-    print("INFO: Klucz API odczytany. Inicjalizowanie DataFetcher...")
-    data_fetcher = DataFetcher(api_key=api_key)
-    print("INFO: DataFetcher zainicjalizowany pomyślnie.")
-
-except Exception as e:
-    print(f"FATAL: Krytyczny błąd podczas inicjalizacji: {e}")
-    # Rzucamy wyjątek dalej, aby zatrzymać aplikację, ale już po zalogowaniu błędu.
-    raise e
-
-
-app = FastAPI()
-
+# Konfiguracja CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # W produkcji zastąp konkretnymi domenami
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Ścieżka testowa (Health Check) ---
+# --- INICJALIZACJA DATA FETCHER ---
+try:
+    print("INFO: Próba odczytania klucza ALPHA_VANTAGE_API_KEY...")
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    
+    if not api_key:
+        raise ValueError("Błąd: Zmienna środowiskowa ALPHA_VANTAGE_API_KEY nie jest ustawiona!")
+    
+    print(f"INFO: Znaleziono klucz API: {api_key[:8]}...")
+    data_fetcher = DataFetcher(api_key=api_key)
+    print("INFO: DataFetcher zainicjalizowany pomyślnie!")
+
+except Exception as e:
+    print(f"FATAL: Błąd inicjalizacji DataFetcher: {e}")
+    print("Aplikacja będzie działać w trybie ograniczonym (tylko dane mockowane)")
+    data_fetcher = None
+
+# --- ENDPOINTY API ---
 @app.get("/")
 async def root():
-    """ Prosty endpoint do sprawdzania, czy API w ogóle działa. """
-    return {"status": "API is running correctly"}
-
-
-# --- Endpointy Aplikacji ---
+    """Health check endpoint."""
+    return {"status": "OK", "message": "Guru Analizator Akcji Nasdaq API is running"}
 
 @app.get("/api/macro_climate")
-async def api_get_macro_climate():
-    return get_macro_climate_analysis()
-
-@app.get("/api/portfolio_risk")
-async def api_get_portfolio_risk():
-    tickers = [item['ticker'] for item in portfolio_manager.get_dream_team()]
-    # W tej wersji symulujemy działanie, przekazując tylko tickery.
-    # W przyszłości trzeba by tu pobrać dane historyczne.
-    return get_portfolio_risk_analysis({"AAPL": {}, "MSFT": {}, "TSLA": {}}) # Przykładowe dane, aby uniknąć błędu
-
-@app.get("/api/full_analysis/{ticker}")
-async def api_full_analysis(ticker: str):
-    # Symulujemy dane, aby uniknąć wyczerpania limitu API podczas testów
-    # W docelowej wersji odkomentuj poniższą linię:
-    # overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
-    # if not overview_data:
-    #     return {"error": "Could not fetch data"}
-    
-    return {
-        "overview": {
-            "name": f"{ticker.upper()} Inc.",
-            "price": 150.75,
-            "change": 2.5,
-            "changePercent": 1.68
-        },
-        "aiSummary": {
-            "recommendation": "Potencjał Wzrostowy (Kupuj)",
-            "justification": "Analiza wskazuje na pozytywne sygnały."
-        }
-    }
+async def api_macro_climate():
+    """Pobiera analizę klimatu makroekonomicznego."""
+    try:
+        analysis = get_macro_climate_analysis()
+        return analysis
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd analizy makro: {str(e)}")
 
 @app.get("/api/portfolio/dream_team")
 async def api_get_dream_team():
-    return portfolio_manager.get_dream_team()
+    """Pobiera aktualny Dream Team z cenami."""
+    try:
+        team = portfolio_manager.get_dream_team()
+        return team
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd pobierania Dream Team: {str(e)}")
 
 @app.get("/api/run_revolution")
 async def api_run_revolution():
-    example_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA"]
-    scan_results = run_market_scan(example_tickers)
-    portfolio_manager.update_dream_team(scan_results['candidates'])
-    return scan_results
+    """Uruchamia skanowanie rynku (Rewolucja AI)."""
+    try:
+        # Tutaj powinna być prawdziwa lista tickerów z Nasdaq
+        # Na razie używamy przykładowej listy
+        sample_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "NFLX"]
+        result = run_market_scan(sample_tickers)
+        
+        # Zaktualizuj Dream Team jeśli znaleziono kandydatów
+        if result["candidates"]:
+            portfolio_manager.update_dream_team(result["candidates"])
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd skanowania rynku: {str(e)}")
 
 @app.get("/api/run_backtest/{ticker}")
 async def api_run_backtest(ticker: str):
-    return run_backtest_simulation(ticker)
+    """Uruchamia backtest dla podanego tickera."""
+    try:
+        result = run_backtest_simulation(ticker)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd backtestu: {str(e)}")
 
-# Ta sekcja jest potrzebna tylko do uruchamiania lokalnego,
-# Gunicorn na Renderze jej nie używa.
+@app.get("/api/portfolio_risk")
+async def api_portfolio_risk():
+    """Analizuje ryzyko bieżącego portfela."""
+    try:
+        # Pobierz tickery z Dream Teamu
+        dream_team = portfolio_manager.get_dream_team()
+        tickers = [stock["ticker"] for stock in dream_team]
+        
+        # Przeprowadź analizę ryzyka
+        risk_analysis = analyze_portfolio_risk(tickers)
+        return risk_analysis
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd analizy ryzyka: {str(e)}")
+
+# --- SERWOWANIE PLIKÓW STATYCZNYCH (Frontend) ---
+@app.get("/frontend")
+async def serve_frontend():
+    """Serwuje główny interfejs użytkownika."""
+    return FileResponse("index.html")
+
+# Możesz też dodać obsługę statycznych plików jeśli masz więcej assetów
+# app.mount("/static", StaticFiles(directory="static"), name="static")
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
