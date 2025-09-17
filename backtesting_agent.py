@@ -1,138 +1,93 @@
 """
 Moduł Silnika Backtestingu "Wehikuł Czasu".
 
-Odpowiedzialność: Przeprowadzanie zaawansowanych symulacji historycznych
-dla strategii "Szybkiej Ligi" na podstawie zdefiniowanych przez użytkownika
-parametrów.
+Odpowiedzialność: Przeprowadzanie symulacji historycznych dla strategii
+"Szybkiej Ligi", aby zweryfikować jej skuteczność.
 """
-from datetime import datetime, timedelta
-import numpy as np
+import pandas as pd
+import pandas_ta as ta
+from typing import List, Dict, Any, Callable
 
-# Import logiki agentów Szybkiej Ligi, aby na niej bazować
-from szybka_liga_agent import agent_sygnalu, agent_potwierdzenia, agent_historyczny
-from utils import safe_float
+# UWAGA: Usunięto bezpośrednie importy z szybka_liga_agent, aby przełamać pętlę zależności.
+# Logika agentów będzie przekazywana jako argumenty.
 
-# --- Funkcje Pomocnicze do Obliczania Wskaźników ---
-# Te funkcje muszą być tutaj, aby symulować wskaźniki na danych historycznych
-
-def calculate_sma(series, period):
-    if len(series) < period: return None
-    return sum(series[-period:]) / period
-
-def calculate_bbands(series, period=20, nbdev=2):
-    if len(series) < period: return None
-    sma = calculate_sma(series, period)
-    std_dev = np.std(series[-period:])
-    return {
-        'Real Lower Band': sma - (nbdev * std_dev),
-        'Real Upper Band': sma + (nbdev * std_dev)
-    }
-
-def calculate_rsi(series, period=14):
-    if len(series) < period + 1: return None
-    deltas = np.diff(series)
-    gains = deltas[deltas > 0]
-    losses = -deltas[deltas < 0]
-    avg_gain = np.mean(gains[-period:]) if len(gains) > 0 else 0
-    avg_loss = np.mean(losses[-period:]) if len(losses) > 0 else 1
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
-def calculate_stoch(series, period=14):
-    if len(series) < period: return None
-    highs = [d['2. high'] for d in series]
-    lows = [d['3. low'] for d in series]
-    closes = [d['4. close'] for d in series]
-    
-    l14 = min(lows[-period:])
-    h14 = max(highs[-period:])
-    
-    slow_k = ((closes[-1] - l14) / (h14 - l14)) * 100 if (h14 - l14) != 0 else 0
-    return slow_k
-
-# --- Główny Silnik Backtestingu ---
-
-def run_backtest(tickers, period_days, risk_level, data_fetcher):
+def run_backtest(
+    tickers: List[str],
+    period: int,
+    risk_level: int,
+    data_fetcher: Any,
+    strategy_logic: Dict[str, Callable]
+) -> List[Dict[str, Any]]:
     """
-    Uruchamia pełny backtest dla strategii "Szybkiej Ligi".
+    Uruchamia symulację historyczną (backtest) dla podanej listy tickerów.
+
+    Args:
+        tickers: Lista tickerów do przetestowania.
+        period: Okres symulacji w dniach (np. 365).
+        risk_level: Poziom ryzyka (1-3), który determinuje, jak silny musi być sygnał.
+        data_fetcher: Instancja klasy DataFetcher.
+        strategy_logic: Słownik zawierający funkcje agentów Szybkiej Ligi.
+                        np. {'sygnalu': agent_sygnalu, 'potwierdzenia': agent_potwierdzenia, ...}
+
+    Returns:
+        Lista słowników, gdzie każdy słownik reprezentuje jedną zamkniętą transakcję.
     """
-    print(f"[Wehikuł Czasu] Rozpoczynam backtest dla {len(tickers)} spółek, okres: {period_days} dni, ryzyko: {risk_level}.")
     all_trades = []
-    
-    end_date = datetime.now()
+    agent_sygnalu = strategy_logic['sygnalu']
+    agent_potwierdzenia = strategy_logic['potwierdzenia']
+    agent_historyczny = strategy_logic['historyczny']
 
     for ticker in tickers:
         try:
-            full_daily_data = data_fetcher.get_data({
-                "function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "full"
-            })
-            if not full_daily_data or 'Time Series (Daily)' not in full_daily_data:
-                continue
+            daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "full"})
+            if not daily_data_json: continue
 
-            series = sorted(
-                [(k, {k.replace('. ', ''): safe_float(v) for k, v in val.items()}) for k, val in full_daily_data['Time Series (Daily)'].items()],
-                key=lambda item: datetime.strptime(item[0], '%Y-%m-%d')
-            )
+            df = pd.DataFrame.from_dict(daily_data_json['Time Series (Daily)'], orient='index')
+            df.index = pd.to_datetime(df.index)
+            df = df.apply(pd.to_numeric)
+            df.rename(columns={
+                '1. open': 'open', '2. high': 'high', '3. low': 'low',
+                '4. close': 'close', '5. volume': 'volume'
+            }, inplace=True)
+            df.sort_index(ascending=True, inplace=True)
             
-            for i in range(90, len(series)):
-                current_date_str, current_day_data = series[i]
-                current_date = datetime.strptime(current_date_str, '%Y-%m-%d')
+            # Obliczamy wskaźniki od razu dla całej serii danych
+            df.ta.sma(length=50, append=True)
+            df.ta.bbands(length=20, append=True)
+            df.ta.rsi(length=14, append=True)
+            df.ta.stoch(k=14, d=3, smooth_k=3, append=True)
 
-                if current_date < (end_date - timedelta(days=period_days)):
-                    continue
+            historical_data = df.iloc[-period-50:]
+            if len(historical_data) < 52: continue
 
-                historical_slice = [s[1] for s in series[:i+1]]
-                historical_slice_dict = dict(series[:i+1])
-                mock_daily_data = {'Time Series (Daily)': historical_slice_dict}
+            for i in range(50, len(historical_data)):
+                # Przekazujemy do agentów tylko potrzebny fragment historii
+                data_slice = historical_data.iloc[:i]
                 
-                # Symulacja obliczeń wskaźników na danych historycznych
-                close_prices = [s['4close'] for s in historical_slice]
-                mock_sma_data = {'Technical Analysis: SMA': {current_date_str: {'SMA': calculate_sma(close_prices, 50)}}}
-                mock_bbands_data = {'Technical Analysis: BBANDS': {current_date_str: calculate_bbands(close_prices)}}
-                mock_rsi_data = {'Technical Analysis: RSI': {current_date_str: {'RSI': calculate_rsi(close_prices)}}}
-                mock_stoch_data = {'Technical Analysis: STOCH': {current_date_str: {'SlowK': calculate_stoch(historical_slice)}}}
-
-                # Uruchomienie agentów Szybkiej Ligi z pełnymi danymi
-                signal_result = agent_sygnalu(mock_daily_data, mock_sma_data, mock_bbands_data)
-                
+                # Symulujemy wywołania agentów
+                signal_result = agent_sygnalu(data_slice) # Przekazujemy DataFrame
                 if signal_result.get('signal'):
-                    confirmation_score = agent_potwierdzenia(mock_rsi_data, mock_stoch_data)
-                    history_result = agent_historyczny(mock_daily_data)
+                    confirmation_score = agent_potwierdzenia(data_slice)
+                    history_result = agent_historyczny(data_slice)
                     total_score = 1 + confirmation_score + history_result['historyScore']
 
                     if total_score >= risk_level:
                         entry_price = signal_result['entry']
-                        stop_loss = signal_result['stopLoss']
+                        stop_loss = entry_price * 0.95 # Uproszczony stop-loss
                         target_price = entry_price * 1.025
 
-                        trade_closed = False
-                        for j in range(i + 1, len(series)):
-                            future_date_str, future_day_data = series[j]
-                            future_low = future_day_data['3low']
-                            future_high = future_day_data['2high']
-
-                            if future_low <= stop_loss:
-                                all_trades.append({
-                                    'ticker': ticker, 'pnl': stop_loss - entry_price,
-                                    'openDate': current_date_str, 'closeDate': future_date_str
-                                })
-                                trade_closed = True
+                        # Sprawdzamy przyszłość, aby zamknąć transakcję
+                        for j in range(i + 1, len(historical_data)):
+                            future_day = historical_data.iloc[j]
+                            if future_day['low'] <= stop_loss:
+                                all_trades.append({'ticker': ticker, 'pnl': stop_loss - entry_price, 'closeDate': future_day.name})
                                 break
-                            
-                            if future_high >= target_price:
-                                all_trades.append({
-                                    'ticker': ticker, 'pnl': target_price - entry_price,
-                                    'openDate': current_date_str, 'closeDate': future_date_str
-                                })
-                                trade_closed = True
+                            if future_day['high'] >= target_price:
+                                all_trades.append({'ticker': ticker, 'pnl': target_price - entry_price, 'closeDate': future_day.name})
                                 break
-                        
-                        if trade_closed:
-                            i += 5
-
         except Exception as e:
-            print(f"[Wehikuł Czasu] Błąd podczas symulacji dla {ticker}: {e}")
-
-    print(f"[Wehikuł Czasu] Backtest zakończony. Zasymulowano {len(all_trades)} transakcji.")
-    return sorted(all_trades, key=lambda x: datetime.strptime(x['closeDate'], '%Y-%m-%d'))
+            print(f"[Backtest] Błąd podczas analizy {ticker}: {e}")
+            continue
+            
+    return all_trades
 
