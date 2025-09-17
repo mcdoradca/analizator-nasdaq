@@ -1,133 +1,97 @@
-# -*- coding: utf-8 -*-
 """
-Moduł Agenta Makroekonomicznego "Sokół".
+Moduł Agentów Makroekonomicznych.
 
-Odpowiedzialność: Analiza ogólnej kondycji gospodarki i klimatu rynkowego
-na podstawie rzeczywistych danych z API.
+Odpowiedzialność: Analiza ogólnej kondycji gospodarki ("Klimat" - Agent Sokół)
+oraz siły trendu na szerokim rynku ("Barometr Rynku").
 """
-from typing import Dict, List, Optional
-import os
-from data_fetcher import DataFetcher
+from utils import get_latest_value, safe_float
 
-def get_latest_value(data: Optional[Dict], data_key: str = "data") -> Optional[float]:
-    """Pomocnicza funkcja do wyciągania najnowszej wartości ze wskaźnika."""
-    if data and data.get(data_key) and len(data[data_key]) > 0:
-        try:
-            return float(data[data_key][0]['value'])
-        except (ValueError, KeyError):
-            return None
-    return None
+# --- Agent "Sokół" (Klimat Makroekonomiczny) ---
 
-def get_macro_climate_analysis(fetcher: DataFetcher) -> Dict:
+def agent_sokol(data_fetcher):
     """
-    Przeprowadza analizę makroekonomiczną na podstawie kluczowych wskaźników z Alpha Vantage.
+    Analizuje kluczowe wskaźniki makroekonomiczne (inflacja, stopy, bezrobocie).
     """
-    print("INFO: Agent 'Sokół' analizuje klimat makroekonomiczny...")
+    try:
+        # Pobieranie danych
+        cpi_data = data_fetcher.get_data({"function": "CPI", "interval": "monthly"})
+        rate_data = data_fetcher.get_data({"function": "FEDERAL_FUNDS_RATE", "interval": "monthly"})
+        unemployment_data = data_fetcher.get_data({"function": "UNEMPLOYMENT"})
 
-    # Pobieranie danych dla kluczowych wskaźników
-    cpi_data = fetcher.get_data({"function": "CPI", "interval": "monthly"})
-    fed_rate_data = fetcher.get_data({"function": "FEDERAL_FUNDS_RATE", "interval": "monthly"})
-    unemployment_data = fetcher.get_data({"function": "UNEMPLOYMENT"})
-    sentiment_data = fetcher.get_data({"function": "CONSUMER_SENTIMENT"})
+        # Walidacja danych
+        if not all([cpi_data, rate_data, unemployment_data]) or \
+           len(cpi_data.get('data', [])) < 2 or \
+           len(rate_data.get('data', [])) < 2 or \
+           len(unemployment_data.get('data', [])) < 2:
+            return {"status": "Brak Danych Makro", "color": "text-gray-400", "icon": "fa-question-circle"}
 
-    # Prosty system punktacji: +1 dla pozytywnego sygnału, -1 dla negatywnego
-    score = 0
-    summary_points: List[str] = []
+        # Obliczanie trendów
+        cpi_trend = safe_float(cpi_data['data'][0]['value']) - safe_float(cpi_data['data'][1]['value'])
+        rate_trend = safe_float(rate_data['data'][0]['value']) - safe_float(rate_data['data'][1]['value'])
+        unemployment_trend = safe_float(unemployment_data['data'][0]['value']) - safe_float(unemployment_data['data'][1]['value'])
 
-    # 1. Analiza Inflacji (CPI)
-    # Spadek inflacji jest generalnie pozytywny dla rynku.
-    if cpi_data and cpi_data.get("data") and len(cpi_data["data"]) > 1:
-        latest_cpi = float(cpi_data["data"][0]['value'])
-        previous_cpi = float(cpi_data["data"][1]['value'])
-        if latest_cpi < previous_cpi:
-            score += 1
-            summary_points.append(f"Inflacja spada ({latest_cpi:.2f}).")
-        else:
-            score -= 1
-            summary_points.append(f"Inflacja rośnie ({latest_cpi:.2f}).")
-    else:
-        summary_points.append("Brak danych o inflacji.")
-
-    # 2. Analiza Stóp Procentowych
-    # Stabilne lub spadające stopy są pozytywne.
-    if fed_rate_data and fed_rate_data.get("data") and len(fed_rate_data["data"]) > 1:
-        latest_rate = float(fed_rate_data["data"][0]['value'])
-        previous_rate = float(fed_rate_data["data"][1]['value'])
-        if latest_rate <= previous_rate:
-            score += 1
-            summary_points.append(f"Stopy procentowe stabilne/spadają ({latest_rate:.2f}%).")
-        else:
-            score -= 1
-            summary_points.append(f"Stopy procentowe rosną ({latest_rate:.2f}%).")
-    else:
-        summary_points.append("Brak danych o stopach procentowych.")
+        # Logika oceny
+        score = 0
+        if cpi_trend < 0: score += 2
+        elif cpi_trend > 0.1: score -= 2
+        if rate_trend <= 0: score += 2
+        else: score -= 2
+        if unemployment_trend <= 0: score += 1
+        else: score -= 1
         
-    # 3. Analiza Bezrobocia
-    # Niskie i spadające bezrobocie jest pozytywne.
-    latest_unemployment = get_latest_value(unemployment_data)
-    if latest_unemployment:
-        # Im niższe bezrobocie, tym lepiej.
-        if latest_unemployment < 4.0:
-            score += 1
-            summary_points.append(f"Bezrobocie niskie ({latest_unemployment:.2f}%).")
-        else:
-            score -= 1
-            summary_points.append(f"Bezrobocie podwyższone ({latest_unemployment:.2f}%).")
-    else:
-         summary_points.append("Brak danych o bezrobociu.")
-         
-    # 4. Analiza Nastrojów Konsumentów
-    # Wysokie nastroje są pozytywne.
-    latest_sentiment = get_latest_value(sentiment_data)
-    if latest_sentiment:
-        if latest_sentiment > 80:
-             score += 1
-             summary_points.append("Nastroje konsumentów są optymistyczne.")
-        elif latest_sentiment < 60:
-             score -= 1
-             summary_points.append("Nastroje konsumentów są pesymistyczne.")
-        else:
-             summary_points.append("Nastroje konsumentów są neutralne.")
-    else:
-        summary_points.append("Brak danych o nastrojach.")
+        if score >= 3:
+            return {"status": "Sprzyjający Ryzyku", "color": "text-green-400", "icon": "fa-feather-alt"}
+        if score <= -2:
+            return {"status": "Wysoka Ostrożność", "color": "text-red-400", "icon": "fa-shield-alt"}
+        return {"status": "Neutralny / Zmienny", "color": "text-yellow-400", "icon": "fa-compass"}
 
-    # Finalna ocena na podstawie wyniku
-    summary = " ".join(summary_points)
-    
-    if score >= 2:
-        return {
-            "status": "Sprzyjający Ryzyku",
-            "color": "text-green-400",
-            "icon": "fa-arrow-trend-up",
-            "summary": summary
-        }
-    elif score <= -2:
-        return {
-            "status": "Unikaj Ryzyka",
-            "color": "text-red-500",
-            "icon": "fa-arrow-trend-down",
-            "summary": summary
-        }
-    else:
-        return {
-            "status": "Neutralny",
-            "color": "text-blue-400",
-            "icon": "fa-arrows-left-right",
-            "summary": summary
-        }
+    except Exception as e:
+        print(f"[Agent Sokół] Błąd analizy makro: {e}")
+        return {"status": "Błąd Analizy", "color": "text-gray-400", "icon": "fa-wifi"}
 
-# Blok do testowania modułu w izolacji
-if __name__ == "__main__":
-    API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
-    if not API_KEY:
-        print("OSTRZEŻENIE: Brak klucza ALPHA_VANTAGE_API_KEY. Testy mogą się nie powść.")
-        API_KEY = "TWOJ_KLUCZ_API"
+def get_macro_climate_analysis(data_fetcher):
+    """Główna funkcja do wywołania analizy klimatu przez Agenta "Sokół"."""
+    print("[Makro] Agent 'Sokół' analizuje klimat makroekonomiczny...")
+    return agent_sokol(data_fetcher)
 
-    fetcher = DataFetcher(api_key=API_KEY)
 
-    print("\n--- Test Agenta 'Sokół' ---")
-    macro_analysis = get_macro_climate_analysis(fetcher)
-    
-    import json
-    print("\nWynik analizy 'Sokoła':")
-    print(json.dumps(macro_analysis, indent=2, ensure_ascii=False))
+# --- Agent Barometru Rynkowego ---
+
+def agent_barometru_rynkowego(data_fetcher):
+    """
+    Analizuje siłę trendu na indeksie Nasdaq (QQQ).
+    """
+    try:
+        # Pobieranie danych dla QQQ
+        daily_data = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
+        sma20_data = data_fetcher.get_data({"function": "SMA", "symbol": "QQQ", "interval": "daily", "time_period": 20, "series_type": "close"})
+        sma50_data = data_fetcher.get_data({"function": "SMA", "symbol": "QQQ", "interval": "daily", "time_period": 50, "series_type": "close"})
+
+        # Walidacja danych
+        if not all([daily_data, sma20_data, sma50_data]):
+             return {"status": "Brak Danych", "color": "text-gray-400", "icon": "fa-question-circle"}
+
+        price = safe_float(get_latest_value(daily_data, 'Time Series (Daily)', '4. close'))
+        sma20 = safe_float(get_latest_value(sma20_data, 'Technical Analysis: SMA', 'SMA'))
+        sma50 = safe_float(get_latest_value(sma50_data, 'Technical Analysis: SMA', 'SMA'))
+
+        if price == 0 or sma20 == 0 or sma50 == 0:
+            return {"status": "Błąd Obliczeń", "color": "text-yellow-400", "icon": "fa-exclamation-triangle"}
+
+        # Logika oceny trendu
+        if price > sma20 > sma50:
+            return {"status": "Silny Trend Wzrostowy", "color": "text-green-400", "icon": "fa-arrow-alt-circle-up"}
+        if price < sma20 < sma50:
+            return {"status": "Silny Trend Spadkowy", "color": "text-red-400", "icon": "fa-arrow-alt-circle-down"}
+        
+        return {"status": "Konsolidacja", "color": "text-yellow-400", "icon": "fa-arrows-alt-h"}
+
+    except Exception as e:
+        print(f"[Agent Barometru] Błąd analizy: {e}")
+        return {"status": "Błąd API", "color": "text-gray-400", "icon": "fa-wifi"}
+
+def get_market_barometer(data_fetcher):
+    """Główna funkcja do wywołania analizy przez Agenta Barometru."""
+    print("[Makro] Agent Barometru analizuje rynek (QQQ)...")
+    return agent_barometru_rynkowego(data_fetcher)
+

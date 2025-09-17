@@ -1,183 +1,168 @@
 # main.py
-# Główny plik "silnika" aplikacji. Uruchamia serwer API i łączy wszystkie moduły.
+# Główny plik "silnika" aplikacji. Uruchamia serwer API i łączy wszystkich agentów.
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
-import pandas as pd
-from typing import Dict, List
+import pandas_ta as ta
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
 
-# --- POPRAWIONE IMPORTY Z NAPRAWIONYCH MODUŁÓW ---
+# --- Importy Agentów i Modułów ---
 from data_fetcher import DataFetcher, transform_to_dataframe
 from portfolio_manager import PortfolioManager
-from macro_agent import get_macro_climate_analysis
-from risk_agent import analyze_portfolio_risk
 from selection_agent import run_market_scan
-from backtesting_agent import run_backtest_simulation
+from zlota_liga_agent import run_golden_league_analysis
+from szybka_liga_agent import run_quick_league_scan
+from backtesting_agent import run_backtest
+from macro_agent import get_macro_climate_analysis, get_market_barometer
+from cockpit_agent import analyze_cockpit_data
+from risk_agent import analyze_single_stock_risk
 
-# --- KROK 1: CENTRALNA INICJALIZACJA APLIKACJI ---
+# --- Struktury Danych (Modele Pydantic) ---
+class PositionPayload(BaseModel):
+    ticker: str
+    quantity: int
+    entryPrice: float
+    targetPrice: float
+    stopLossPrice: float
+    reason: Optional[str] = None
 
-# Pobieramy klucz API ze zmiennej środowiskowej (kluczowe dla Render)
-api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
-if not api_key:
-    raise ValueError("Krytyczny błąd: Brak zmiennej środowiskowej ALPHA_VANTAGE_API_KEY. Aplikacja nie może wystartować.")
+class ClosePositionPayload(BaseModel):
+    id: str
+    closePrice: float
 
-# Tworzymy jedną, globalną instancję DataFetcher, która będzie używana w całej aplikacji
-data_fetcher = DataFetcher(api_key=api_key)
+# --- Inicjalizacja Aplikacji i Kluczowych Komponentów ---
+app = FastAPI(title="Analizator Nasdaq API")
 
-# Tworzymy jedną, globalną instancję PortfolioManager, przekazując mu fetcher
-portfolio_manager = PortfolioManager(fetcher=data_fetcher)
-
-# Inicjalizujemy aplikację FastAPI
-app = FastAPI(
-    title="Analizator Giełdowy Nasdaq API",
-    description="Silnik analityczny dla aplikacji Guru Analizator Akcji Nasdaq",
-    version="2.0.0"
-)
-
-# Konfiguracja CORS, aby umożliwić komunikację z interfejsem użytkownika
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # W produkcji warto ograniczyć do konkretnej domeny
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+if not api_key:
+    raise RuntimeError("Brak klucza API! Ustaw zmienną środowiskową ALPHA_VANTAGE_API_KEY.")
 
-# --- KROK 2: IMPLEMENTACJA WSZYSTKICH ENDPOINTÓW API ---
+data_fetcher = DataFetcher(api_key=api_key)
+portfolio_manager = PortfolioManager()
 
-@app.get("/api/macro_climate", summary="Pobiera analizę makroekonomiczną 'Sokoła'")
+# --- Endpointy API ---
+
+@app.get("/")
+def read_root():
+    return {"status": "API Analizatora Nasdaq działa poprawnie."}
+
+@app.get("/api/macro_climate")
 async def api_get_macro_climate():
-    """Zwraca ocenę klimatu rynkowego na podstawie rzeczywistych wskaźników."""
     return get_macro_climate_analysis(data_fetcher)
 
-@app.get("/api/portfolio_risk", summary="Pobiera analizę ryzyka portfela 'Cerbera'")
-async def api_get_portfolio_risk():
-    """Pobiera dane historyczne dla spółek w portfelu i oblicza ich korelację."""
-    tickers = portfolio_manager._dream_team_tickers
-    if len(tickers) < 2:
-        return {
-            "level": "Brak Danych", "correlation": 0, "color": "text-gray-400",
-            "summary": "Portfel musi zawierać co najmniej 2 spółki do analizy ryzyka."
-        }
-        
-    portfolio_data: Dict[str, pd.DataFrame] = {}
-    for ticker in tickers:
-        historical_data = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
-        df = transform_to_dataframe(historical_data)
-        if df is not None:
-            portfolio_data[ticker] = df
-    
-    if len(portfolio_data) < 2:
-         return {
-            "level": "Błąd Danych", "correlation": 0, "color": "text-yellow-400",
-            "summary": "Nie udało się pobrać wystarczających danych do analizy korelacji."
-        }
+@app.get("/api/market_barometer")
+async def api_get_market_barometer():
+    return get_market_barometer(data_fetcher)
 
-    return analyze_portfolio_risk(portfolio_data)
-
-@app.get("/api/full_analysis/{ticker}", summary="Pobiera pełną analizę dla jednej spółki")
-async def api_full_analysis(ticker: str):
-    """Pobiera dane ogólne, aktualne notowania i generuje prostą rekomendację AI."""
-    overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
-    quote_data_raw = data_fetcher.get_data({"function": "GLOBAL_QUOTE", "symbol": ticker})
-    
-    if not overview_data or not quote_data_raw or "Global Quote" not in quote_data_raw:
-        raise HTTPException(status_code=404, detail=f"Nie można było pobrać pełnych danych dla {ticker}")
-
-    quote_data = quote_data_raw["Global Quote"]
-    
-    try:
-        price = float(quote_data.get("05. price", 0))
-        change = float(quote_data.get("09. change", 0))
-        change_percent_str = quote_data.get("10. change percent", "0%").replace('%', '')
-        change_percent = float(change_percent_str)
-        pe_ratio = float(overview_data.get("PERatio", 0))
-    except (ValueError, TypeError):
-         raise HTTPException(status_code=500, detail=f"Błąd przetwarzania danych dla {ticker}")
-    
-    # Prosta logika "AI Summary"
-    recommendation = "Neutralna Rekomendacja"
-    justification = "Spółka o stabilnych wskaźnikach."
-    if pe_ratio > 0 and pe_ratio < 20:
-        recommendation = "Potencjał Wartościowy (Kupuj)"
-        justification = "Atrakcyjna wycena (niski wskaźnik C/Z) sugeruje potencjał wzrostowy."
-    elif change_percent > 3:
-        recommendation = "Silny Impuls Wzrostowy (Obserwuj)"
-        justification = "Znaczący wzrost ceny wskazuje na duże zainteresowanie rynku."
-
-    return {
-        "overview": {
-            "name": overview_data.get("Name", ticker),
-            "price": price,
-            "change": change,
-            "changePercent": change_percent
-        },
-        "aiSummary": {
-            "recommendation": recommendation,
-            "justification": justification
-        }
-    }
-
-@app.get("/api/portfolio/dream_team", summary="Pobiera listę spółek 'Dream Team' z aktualnymi cenami")
-async def api_get_dream_team():
-    """Zwraca dynamicznie aktualizowaną listę spółek z portfela."""
-    return portfolio_manager.get_dream_team()
-
-@app.get("/api/run_revolution", summary="Uruchamia skanowanie rynku 'Rewolucja AI'")
+@app.post("/api/run_revolution")
 async def api_run_revolution():
-    """
-    Uruchamia proces selekcji Fazy 1: skanuje rynek w poszukiwaniu spółek
-    o cenie poniżej 5 USD, a następnie poddaje je analizie Agentów Selekcyjnych.
-    """
-    # W pełnej wersji produkcyjnej, ta lista byłaby dynamicznie pobierana z API
-    # np. za pomocą funkcji LISTING_STATUS, która zwraca tysiące spółek.
-    # Dla celów demonstracyjnych i wydajnościowych używamy rozszerzonej, statycznej listy.
-    full_nasdaq_universe = [
-        "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "TSLA", "META", "AVGO", "COST", "ADBE", "AMD", "INTC", "QCOM", "SBUX", "PYPL", "NFLX",
-        "SIRI", "PLUG", "MARA", "RIOT", "TQQQ", "SOFI", "FCEL", "CLSK", "ITUB", "RUN", "WBD", "OPEN", "NKLA", "CHPT", "TLRY", "RIVN"
-    ]
-    
-    print(f"INFO: Rozpoczynanie Fazy 1 Rewolucji AI dla {len(full_nasdaq_universe)} spółek.")
-    
-    # Krok 1: Filtrowanie wstępne - znajdź spółki poniżej 5 USD
-    cheap_stocks: List[str] = []
-    print("INFO: Filtrowanie spółek o cenie poniżej 5 USD...")
-    for ticker in full_nasdaq_universe:
-        quote_data_raw = data_fetcher.get_data({"function": "GLOBAL_QUOTE", "symbol": ticker})
-        if quote_data_raw and "Global Quote" in quote_data_raw:
-            try:
-                price = float(quote_data_raw["Global Quote"].get("05. price", 999))
-                if price < 5.0:
-                    cheap_stocks.append(ticker)
-            except (ValueError, TypeError):
-                continue # Pomiń spółki z błędnymi danymi
-
-    print(f"INFO: Znaleziono {len(cheap_stocks)} spółek poniżej 5 USD: {cheap_stocks}")
-
-    if not cheap_stocks:
-         return {"message": "Nie znaleziono żadnych spółek spełniających kryterium cenowe < 5 USD.", "candidates": []}
-
-    # Krok 2: Uruchom właściwy skan Agentów Selekcyjnych na odfiltrowanej liście
-    scan_results = run_market_scan(cheap_stocks, data_fetcher)
-    
-    # Krok 3: Zaktualizuj Dream Team i zwróć wyniki
+    scan_results = run_market_scan(data_fetcher)
     portfolio_manager.update_dream_team(scan_results['candidates'])
     return scan_results
 
-@app.get("/api/run_backtest/{ticker}", summary="Uruchamia symulację historyczną 'Wehikuł Czasu'")
-async def api_run_backtest(ticker: str):
-    """Uruchamia backtesting dla wybranej spółki i zwraca wiarygodne wyniki."""
-    return run_backtest_simulation(ticker, data_fetcher)
+@app.get("/api/scan_quick_league")
+async def api_scan_quick_league():
+    tickers = portfolio_manager.get_dream_team_tickers()
+    if not tickers: return []
+    return run_quick_league_scan(tickers, data_fetcher)
 
+@app.get("/api/analyze_golden_league")
+async def api_analyze_golden_league():
+    tickers = portfolio_manager.get_dream_team_tickers()
+    if not tickers: return []
+    return run_golden_league_analysis(tickers, data_fetcher)
 
-# --- KROK 3: SEKCJA URUCHOMIENIOWA ---
+@app.get("/api/cockpit_data")
+async def api_get_cockpit_data():
+    return analyze_cockpit_data(portfolio_manager.get_closed_positions())
 
+@app.get("/api/portfolio_state")
+async def api_get_portfolio_state():
+    return portfolio_manager.get_full_portfolio_state({}) # Ceny będą pobierane po stronie klienta
+
+@app.post("/api/open_position")
+async def api_open_position(payload: PositionPayload):
+    pos_id = portfolio_manager.open_position(**payload.dict())
+    return {"status": "success", "positionId": pos_id}
+
+@app.post("/api/close_position")
+async def api_close_position(payload: ClosePositionPayload):
+    closed_pos = portfolio_manager.close_position(payload.id, payload.closePrice)
+    if not closed_pos:
+        raise HTTPException(status_code=404, detail="Pozycja nie znaleziona.")
+    return {"status": "success", "closedPosition": closed_pos}
+    
+@app.get("/api/run_backtest")
+async def api_run_backtest(period: int = 365, risk_level: int = 2):
+    tickers = portfolio_manager.get_dream_team_tickers()
+    if not tickers:
+        raise HTTPException(status_code=400, detail="Dream Team jest pusty.")
+    return run_backtest(tickers, period, risk_level, data_fetcher)
+
+@app.get("/api/full_analysis/{ticker}")
+async def api_full_analysis(ticker: str):
+    """
+    Przebudowany endpoint do pełnej analizy 360 stopni.
+    Zbiera wszystkie dane, oblicza wskaźniki i zwraca kompletny pakiet analityczny.
+    """
+    # 1. Pobieranie surowych danych
+    overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
+    daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "full"})
+    qqq_daily_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
+
+    if not overview_data or not daily_data_json:
+        raise HTTPException(status_code=404, detail=f"Brak kluczowych danych dla {ticker}.")
+
+    # 2. Transformacja danych do DataFrame
+    stock_df = transform_to_dataframe(daily_data_json)
+    market_df = transform_to_dataframe(qqq_daily_json)
+    if stock_df is None:
+        raise HTTPException(status_code=500, detail="Błąd przetwarzania danych historycznych.")
+
+    # 3. Obliczanie wskaźników technicznych za pomocą pandas-ta
+    stock_df.ta.rsi(length=14, append=True)
+    stock_df.ta.macd(fast=12, slow=26, signal=9, append=True)
+    stock_df.ta.bbands(length=20, append=True)
+    stock_df.ta.stoch(k=14, d=3, smooth_k=3, append=True)
+    stock_df.ta.adx(length=14, append=True)
+
+    # 4. Uruchamianie agentów analitycznych
+    risk_analysis = analyze_single_stock_risk(stock_df, market_df, overview_data)
+    
+    # 5. Przygotowanie finalnej odpowiedzi
+    # Wybieramy ostatni wiersz z DataFrame, aby uzyskać najnowsze wartości wskaźników
+    latest_indicators = stock_df.iloc[-1].to_dict()
+
+    return {
+        "overview": overview_data,
+        "daily": daily_data_json, # Przesyłamy też surowe dane dla wykresów
+        "risk": risk_analysis,
+        "indicators": {
+            "rsi": latest_indicators.get('RSI_14'),
+            "macd_line": latest_indicators.get('MACD_12_26_9'),
+            "macd_signal": latest_indicators.get('MACDs_12_26_9'),
+            "macd_hist": latest_indicators.get('MACDh_12_26_9'),
+            "bbands_upper": latest_indicators.get('BBU_20_2.0'),
+            "bbands_lower": latest_indicators.get('BBL_20_2.0'),
+            "stoch_k": latest_indicators.get('STOCHk_14_3_3'),
+            "stoch_d": latest_indicators.get('STOCHd_14_3_3'),
+            "adx": latest_indicators.get('ADX_14')
+        }
+    }
+
+# --- Uruchomienie Serwera ---
 if __name__ == "__main__":
-    # Używamy portu zdefiniowanego przez Render, z domyślnym 8000 do testów lokalnych
     port = int(os.environ.get("PORT", 8000))
-    # Używamy hosta 0.0.0.0, aby aplikacja była dostępna z zewnątrz w kontenerze Render
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
 

@@ -4,3 +4,4 @@ numpy
 requests
 gunicorn
 pandas
+pandas-ta

@@ -8,416 +8,281 @@
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
-        /* Custom scrollbar for webkit browsers */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #1f2937; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-        /* Styles for the loader */
-        .loader {
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #3498db;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-        }
-        .scanner-loader {
-             width: 16px; height: 16px;
-             border: 2px solid #f3f3f3;
-             border-top: 2px solid #3498db;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .progress-bar-container { background-color: #374151; border-radius: 9999px; }
+        .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        .scanner-loader { width: 16px; height: 16px; border: 2px solid #f3f3f3; border-top: 2px solid #3498db; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .progress-bar { background-color: #10B981; transition: width 0.5s ease-in-out; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-200 font-sans antialiased">
 
-    <!-- Auth Section (Simplified for Frontend Demo) -->
-    <div id="auth-section" class="fixed inset-0 bg-gray-900 flex justify-center items-center z-50">
-        <div class="bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700 text-center">
-            <h2 class="text-3xl font-bold mb-6 text-white">Analizator Nasdaq</h2>
-            <p class="text-gray-400 mb-6">Interfejs użytkownika jest gotowy. Uruchom serwer back-end (main.py), aby w pełni aktywować aplikację.</p>
-            <button id="enter-app-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-300">Wejdź do Aplikacji</button>
+    <!-- Transaction Modal -->
+    <div id="transaction-modal" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex justify-center items-center z-50 hidden">
+        <div class="bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
+            <h2 id="transaction-modal-title" class="text-2xl font-bold mb-6 text-white text-center"></h2>
+            <div id="price-input-container" class="space-y-4">
+                <label for="transaction-price" class="block text-sm font-medium">Cena Zamknięcia</label>
+                <input type="number" id="transaction-price" class="w-full bg-gray-700 rounded-lg px-4 py-2 text-white" placeholder="0.00">
+            </div>
+            <div class="mt-8 flex space-x-4">
+                <button id="confirm-transaction-btn" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg">Zatwierdź</button>
+                <button id="cancel-transaction-btn" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg">Anuluj</button>
+            </div>
         </div>
     </div>
-    
+
     <!-- Main Application Container -->
-    <div id="app-container" class="hidden h-screen flex flex-col">
-        <!-- Header -->
+    <div id="app-container" class="h-screen flex flex-col">
         <header class="bg-gray-800/80 backdrop-blur-sm border-b border-gray-700 p-4 flex justify-between items-center">
-             <div>
-                <h1 class="text-2xl font-bold text-white"><i class="fas fa-chart-line mr-2 text-blue-400"></i>Guru Analizator Akcji Nasdaq</h1>
-             </div>
-             <div class="flex items-center space-x-4">
-                 <div class="relative">
-                    <input type="text" id="search-ticker-input" class="bg-gray-700 border border-gray-600 rounded-full w-64 px-4 py-2 pl-10 text-white" placeholder="Wpisz ticker (np. AAPL)">
-                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                </div>
-                <button id="analyze-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-full">
-                    <i class="fas fa-search-dollar mr-2"></i>Analizuj
-                </button>
+            <h1 class="text-2xl font-bold text-white"><i class="fas fa-chart-line mr-2 text-blue-400"></i>Guru Analizator Akcji Nasdaq</h1>
+            <div class="flex items-center space-x-4">
+                 <input type="text" id="search-ticker-input" class="bg-gray-700 rounded-full w-64 px-4 py-2 text-white" placeholder="Wpisz ticker (np. AAPL)">
+                <button id="analyze-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-full">Analizuj</button>
             </div>
         </header>
         
-        <!-- Main Content -->
         <main class="flex-1 flex overflow-hidden">
-            <!-- Left Sidebar -->
             <aside class="w-2/5 xl:w-1/3 bg-gray-800/50 p-4 flex flex-col">
-                 <!-- View Toggles -->
                 <div class="flex flex-wrap gap-2 mb-4 border-b border-gray-700 pb-4">
-                    <button id="portfolio-view-toggle" data-view="portfolio" class="view-toggle flex-grow bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-users mr-2"></i>Portfel</button>
-                    <button id="cockpit-view-toggle" data-view="cockpit" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-tachometer-alt mr-2"></i>Kokpit</button>
-                    <button id="revolution-view-toggle" data-view="revolution" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-rocket mr-2"></i>Rewolucja AI</button>
-                    <button id="backtesting-view-toggle" data-view="backtesting" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-history mr-2"></i>Wehikuł Czasu</button>
+                    <button data-view="portfolio" class="view-toggle flex-grow bg-gray-600 text-white font-bold py-2 px-3 rounded-lg text-xs"><i class="fas fa-users mr-2"></i>Portfel</button>
+                    <button data-view="cockpit" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg text-xs"><i class="fas fa-tachometer-alt mr-2"></i>Kokpit</button>
+                    <button data-view="revolution" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg text-xs"><i class="fas fa-rocket mr-2"></i>Rewolucja AI</button>
+                    <button data-view="backtesting" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg text-xs"><i class="fas fa-history mr-2"></i>Wehikuł Czasu</button>
                 </div>
                 
-                <!-- Market Indicators Grid -->
                 <div class="grid grid-cols-2 gap-2 mb-4">
                     <div class="p-2 bg-gray-800/50 rounded-lg text-center">
-                        <h4 class="text-xs font-bold text-purple-300 flex items-center justify-center mb-1"><i class="fas fa-tachometer-alt-fast mr-1"></i>Barometr</h4>
-                        <div id="market-barometer-status" class="flex items-center justify-center text-sm font-semibold">
-                           <div class="loader scanner-loader"></div>
-                        </div>
+                        <h4 class="text-xs font-bold text-purple-300 mb-1"><i class="fas fa-tachometer-alt-fast mr-1"></i>Barometr</h4>
+                        <div id="market-barometer-status" class="text-sm font-semibold"></div>
                     </div>
                     <div class="p-2 bg-gray-800/50 rounded-lg text-center">
-                        <h4 class="text-xs font-bold text-teal-300 flex items-center justify-center mb-1"><i class="fas fa-wind mr-1"></i>Klimat</h4>
-                        <div id="macro-climate-status" class="flex items-center justify-center text-sm font-semibold">
-                            <div class="loader scanner-loader"></div>
-                        </div>
+                        <h4 class="text-xs font-bold text-teal-300 mb-1"><i class="fas fa-wind mr-1"></i>Klimat</h4>
+                        <div id="macro-climate-status" class="text-sm font-semibold"></div>
                     </div>
                 </div>
 
-                <!-- Portfolio Section -->
-                <div id="sidebar-content-container" class="flex-1 overflow-y-auto space-y-2">
-                    <div id="portfolio-sidebar-content" class="space-y-2">
-                        <!-- Golden League -->
-                        <div class="bg-gray-800/50 rounded-lg">
-                            <div class="accordion-header flex justify-between items-center p-3 cursor-pointer">
-                                <h3 class="text-lg font-bold text-amber-300"><i class="fas fa-trophy mr-2"></i>Złota Liga</h3>
-                                <i class="fas fa-chevron-down accordion-icon"></i>
-                            </div>
-                            <div class="collapsible-content p-3 hidden space-y-3">
-                                <div id="golden-league-list" class="space-y-2">
-                                    <p class="text-gray-500 text-sm px-2">Funkcjonalność w budowie.</p>
-                                </div>
-                            </div>
+                <div class="flex-1 overflow-y-auto space-y-2">
+                    <div class="bg-gray-800/50 rounded-lg">
+                        <h3 class="text-lg font-bold text-amber-300 p-3"><i class="fas fa-trophy mr-2"></i>Złota Liga</h3>
+                        <div class="p-3">
+                            <button id="analyze-league-button" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-1 px-3 rounded-lg text-xs">Analizuj Dream Team</button>
+                            <div id="golden-league-list" class="space-y-2 mt-2"></div>
                         </div>
-
-                        <!-- Szybka Liga -->
-                        <div class="bg-gray-800/50 rounded-lg">
-                             <div class="accordion-header flex justify-between items-center p-3 cursor-pointer">
-                                <h3 class="text-lg font-bold text-cyan-300"><i class="fas fa-bolt mr-2"></i>Szybka Liga</h3>
-                                <i class="fas fa-chevron-down accordion-icon"></i>
-                            </div>
-                            <div class="collapsible-content p-3 hidden space-y-3">
-                                <div id="quick-league-list" class="space-y-2">
-                                    <p class="text-gray-500 text-sm px-2">Funkcjonalność w budowie.</p>
-                                </div>
-                            </div>
+                    </div>
+                    <div class="bg-gray-800/50 rounded-lg">
+                        <h3 class="text-lg font-bold text-cyan-300 p-3"><i class="fas fa-bolt mr-2"></i>Szybka Liga</h3>
+                        <div class="p-3">
+                            <button id="scan-quick-league-button" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-lg text-xs">Skanuj Dream Team</button>
+                            <div id="quick-league-list" class="space-y-2 mt-2"></div>
                         </div>
-                        
-                        <!-- Dream Team -->
-                        <div class="bg-gray-800/50 rounded-lg">
-                            <div class="accordion-header flex justify-between items-center p-3 cursor-pointer">
-                                <h3 class="text-lg font-bold text-green-400"><i class="fas fa-star mr-2"></i>Dream Team</h3>
-                                <i class="fas fa-chevron-down accordion-icon"></i>
-                            </div>
-                            <div class="collapsible-content p-3 hidden space-y-3">
-                                <div id="dream-team-list" class="space-y-2">
-                                     <div class="loader scanner-loader mx-auto"></div>
-                                </div>
-                            </div>
-                        </div>
+                    </div>
+                    <div class="bg-gray-800/50 rounded-lg">
+                        <h3 class="text-lg font-bold text-green-400 p-3"><i class="fas fa-star mr-2"></i>Dream Team</h3>
+                        <div id="dream-team-list" class="p-3 space-y-2"></div>
                     </div>
                 </div>
             </aside>
             
-            <!-- Right Content Area (swappable) -->
             <section id="content-area" class="flex-1 overflow-y-auto p-6">
-                <!-- Analysis Section -->
-                <div id="portfolio-section" class="h-full">
-                     <div id="analysis-placeholder" class="flex flex-col justify-center items-center h-full text-gray-500">
-                         <i class="fas fa-chart-pie fa-4x mb-4"></i>
-                        <h2 class="text-2xl font-semibold">Wybierz akcję do analizy</h2>
-                        <p>Wpisz ticker w polu wyszukiwania i kliknij "Analizuj".</p>
-                    </div>
-                    <div id="analysis-content" class="hidden">
-                        <!-- Content will be populated by JS -->
-                    </div>
+                <div id="portfolio-section">
+                    <div id="analysis-placeholder" class="text-center text-gray-500 mt-16"><i class="fas fa-chart-pie fa-4x mb-4"></i><h2 class="text-2xl">Wybierz akcję do analizy</h2></div>
+                    <div id="analysis-content"></div>
                 </div>
-                <!-- Cockpit Section -->
-                <div id="cockpit-section" class="h-full hidden">
-                    <h2 class="text-2xl font-bold text-white mb-6">Kokpit Transakcyjny</h2>
-                    <div id="cerber-portfolio-panel" class="mb-6 p-5 rounded-xl border border-red-500/50 bg-red-900/20">
-                        <h3 class="text-xl font-bold mb-3 flex items-center text-red-300"><i class="fas fa-shield-alt mr-3"></i>Analiza Ryzyka Portfela (Agent Cerber)</h3>
-                        <div id="cerber-portfolio-content" class="space-y-3 text-sm">
-                           <div class="loader scanner-loader"></div>
+                <div id="cockpit-section" class="hidden">
+                    <h2 class="text-2xl font-bold mb-6">Kokpit Transakcyjny</h2>
+                    <div id="cockpit-dashboard" class="grid grid-cols-3 gap-4 mb-6"></div>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div>
+                             <h3 class="text-xl font-bold mb-4">Otwarte Pozycje</h3>
+                             <div id="open-positions-list" class="space-y-3"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold mb-4">Historia Transakcji</h3>
+                            <div id="closed-positions-list" class="space-y-3"></div>
                         </div>
                     </div>
-                     <p class="text-gray-500">Pełna funkcjonalność kokpitu w budowie.</p>
                 </div>
-                <!-- Revolution Section -->
-                <div id="revolution-section" class="h-full hidden">
-                    <div class="mb-6 p-5 rounded-xl border border-red-500/50 bg-red-900/20">
-                        <h2 class="text-2xl font-bold text-white mb-3">Rewolucja AI 2.0: Automatyczny Dobór Drużyny</h2>
-                        <p class="text-gray-400 text-sm">Uruchom pełny skan rynku, aby agenci selekcyjni wybrali najlepszych kandydatów do Twojego Dream Teamu.</p>
-                    </div>
-                    <button id="start-revolution-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg">
-                        <i class="fas fa-play mr-2"></i>Uruchom Rewolucję
-                    </button>
-                    <div id="revolution-results" class="mt-6 bg-gray-800 rounded-xl p-4 text-sm font-mono h-96 overflow-y-auto">
-                        <p class="text-gray-500">Agent AI oczekuje na aktywację...</p>
-                    </div>
+                <div id="revolution-section" class="hidden">
+                    <h2 class="text-2xl font-bold mb-6">Rewolucja AI</h2>
+                    <button id="start-revolution-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg">Uruchom Skan</button>
+                    <div id="revolution-results" class="mt-6 bg-gray-800 p-4 rounded-xl font-mono"></div>
                 </div>
-                <!-- Backtesting Section -->
-                <div id="backtesting-section" class="h-full hidden">
-                    <div class="mb-6 p-5 rounded-xl border border-indigo-500/50 bg-indigo-900/20">
-                        <h2 class="text-2xl font-bold text-white mb-3">Wehikuł Czasu: Silnik Backtestingu</h2>
-                        <p class="text-gray-400 text-sm">Przetestuj skuteczność strategii na danych historycznych dla wybranego tickera.</p>
+                <div id="backtesting-section" class="hidden">
+                    <h2 class="text-2xl font-bold mb-6">Wehikuł Czasu</h2>
+                    <div class="flex items-center space-x-4 mb-6">
+                        <select id="backtest-period" class="bg-gray-700 rounded-lg p-2"><option value="90">3 miesiące</option><option value="180">6 miesięcy</option><option value="365">1 rok</option></select>
+                        <select id="backtest-risk-level" class="bg-gray-700 rounded-lg p-2"><option value="3">Konserwatywny</option><option value="2">Zrównoważony</option><option value="1">Agresywny</option></select>
+                        <button id="start-backtest-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Uruchom Test</button>
                     </div>
-                    <button id="start-backtest-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg">
-                        <i class="fas fa-play mr-2"></i>Uruchom Test dla 'TSLA'
-                    </button>
-                    <div id="backtesting-results" class="mt-6 bg-gray-800 rounded-xl p-4 text-sm">
-                         <p class="text-gray-500">Silnik backtestingu oczekuje na aktywację...</p>
-                    </div>
+                    <div id="backtesting-results"></div>
                 </div>
             </section>
         </main>
     </div>
     
     <script type="module">
-        // --- KLUCZOWA ZMIANA: DYNAMICZNE USTAWIANIE ADRESU API ---
-        const IS_LOCAL = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
-        // Adres serwera API na Render (proszę się upewnić, że jest poprawny)
-        const RENDER_API_URL = "https://analizator-nasdaq.onrender.com"; 
-        const API_BASE_URL = IS_LOCAL ? "http://127.0.0.1:8000" : RENDER_API_URL;
+        const API_BASE_URL = (() => {
+            const host = window.location.hostname;
+            if (host === 'localhost' || host === '127.0.0.1') return 'http://127.0.0.1:8000';
+            if (host.includes('onrender.com')) {
+                return `https://${host.replace('-frontend-','')}-backend.onrender.com`;
+            }
+            return '';
+        })();
 
-        // --- GLOBAL STATE ---
-        let currentView = 'portfolio';
-
-        // --- DOM ELEMENTS ---
-        const authSection = document.getElementById('auth-section');
-        const appContainer = document.getElementById('app-container');
-        const enterAppBtn = document.getElementById('enter-app-btn');
-        const analyzeButton = document.getElementById('analyze-button');
-        const searchInput = document.getElementById('search-ticker-input');
-        const barometerStatus = document.getElementById('market-barometer-status');
-        
-        const sections = {
-            portfolio: document.getElementById('portfolio-section'),
-            cockpit: document.getElementById('cockpit-section'),
-            revolution: document.getElementById('revolution-section'),
-            backtesting: document.getElementById('backtesting-section')
+        const appState = {
+            portfolio: { dreamTeam: [], openPositions: [], closedPositions: [] },
+            currentTransaction: {}
         };
-        
-        // --- API COMMUNICATION ---
+
         async function fetchFromAPI(endpoint, options = {}) {
             const url = `${API_BASE_URL}${endpoint}`;
             try {
                 const response = await fetch(url, options);
-                if (!response.ok) throw new Error(`Błąd sieci: ${response.statusText}`);
-                // Pomyślne połączenie - aktualizuj barometr
-                barometerStatus.innerHTML = `<i class="fas fa-check-circle text-green-400 mr-2"></i><span>Online</span>`;
-                return await response.json();
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Błąd serwera');
+                }
+                return response.json();
             } catch (error) {
-                console.error(`Błąd podczas komunikacji z API (${endpoint}):`, error);
-                // Błąd połączenia - aktualizuj barometr
-                barometerStatus.innerHTML = `<i class="fas fa-exclamation-triangle text-red-400 mr-2"></i><span>Offline</span>`;
-                alert(`Nie można połączyć się z serwerem API. Upewnij się, że serwer działa pod adresem: ${API_BASE_URL}\n\nBłąd: ${error.message}`);
+                console.error(`Błąd API (${endpoint}):`, error);
+                alert(`Błąd połączenia: ${error.message}`);
                 throw error;
             }
         }
 
-        // --- DATA FETCHING & UPDATING ---
-        async function updateMacroClimate() {
-            const container = document.getElementById('macro-climate-status');
-            container.innerHTML = '<div class="loader scanner-loader"></div>';
+        function switchMainView(view) {
+            document.querySelectorAll('[id$="-section"]').forEach(s => s.classList.add('hidden'));
+            document.getElementById(`${view}-section`).classList.remove('hidden');
+            document.querySelectorAll('.view-toggle').forEach(t => {
+                t.classList.replace('bg-gray-600', 'bg-gray-700');
+                if (t.dataset.view === view) t.classList.replace('bg-gray-700', 'bg-gray-600');
+            });
+        }
+
+        async function updateFullPortfolioState() {
             try {
-                const data = await fetchFromAPI('/api/macro_climate');
-                container.innerHTML = `<i class="fas ${data.icon} ${data.color} mr-2"></i><span class="${data.color}">${data.status}</span>`;
-            } catch (e) { container.textContent = 'Błąd'; }
+                const data = await fetchFromAPI('/api/portfolio_state');
+                appState.portfolio = data;
+                renderAllPortfolioSections();
+            } catch (e) {
+                console.error("Nie udało się zsynchronizować portfela:", e);
+            }
         }
 
-        async function updateCerberPortfolioAnalysis() {
-            const container = document.getElementById('cerber-portfolio-content');
-            container.innerHTML = '<div class="loader scanner-loader"></div>';
-             try {
-                const data = await fetchFromAPI('/api/portfolio_risk');
-                container.innerHTML = `<p class="text-gray-300">Poziom korelacji portfela: <strong class="${data.color}">${data.level} (${data.correlation.toFixed(2)})</strong></p><p class="text-xs text-gray-500 mt-2">${data.summary}</p>`;
-            } catch (e) { container.innerHTML = '<p class="text-red-500">Błąd analizy.</p>'; }
+        function renderAllPortfolioSections() {
+            renderDreamTeam(appState.portfolio.dreamTeam);
+            renderOpenPositions(appState.portfolio.openPositions);
+            renderClosedPositions(appState.portfolio.closedPositions);
+            renderCockpitDashboard();
         }
 
-        async function updateDreamTeamList() {
+        function renderDreamTeam(data) {
             const container = document.getElementById('dream-team-list');
-            container.innerHTML = '<div class="loader scanner-loader mx-auto"></div>';
-            try {
-                const dreamTeamData = await fetchFromAPI('/api/portfolio/dream_team');
-                renderDreamTeam(dreamTeamData);
-            } catch (e) {
-                container.innerHTML = `<p class="text-red-500 text-sm px-2">Błąd ładowania portfela.</p>`;
-            }
+            container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Pusto.</p>' : data.map(stock => `
+                <div class="bg-gray-700/50 p-2 rounded-lg cursor-pointer" onclick="window.runFullAnalysis('${stock.ticker}')">
+                    <span class="font-bold">${stock.ticker}</span>
+                </div>
+            `).join('');
         }
 
-        // --- EVENT HANDLERS ---
-        async function handleAnalyzeClick() {
-            const ticker = searchInput.value.trim().toUpperCase();
-            if (!ticker) {
-                alert('Wpisz ticker do analizy.');
-                return;
-            }
-            const placeholder = document.getElementById('analysis-placeholder');
-            const content = document.getElementById('analysis-content');
-            
-            placeholder.classList.add('hidden');
-            content.classList.remove('hidden');
-            content.innerHTML = '<div class="loader mx-auto mt-16"></div>';
+        function renderOpenPositions(data) {
+            const container = document.getElementById('open-positions-list');
+            container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Brak otwartych pozycji.</p>' : data.map(pos => `
+                <div class="bg-gray-700/50 p-3 rounded-lg">
+                    <div class="flex justify-between">
+                        <span class="font-bold">${pos.ticker}</span>
+                        <span>${pos.quantity} @ ${pos.entryPrice.toFixed(2)}</span>
+                    </div>
+                    <button class="close-position-btn mt-2 bg-red-600 text-xs py-1 px-2 rounded" data-id="${pos.id}">Zamknij</button>
+                </div>
+            `).join('');
+        }
 
-            try {
-                const analysisData = await fetchFromAPI(`/api/full_analysis/${ticker}`);
-                renderFullAnalysis(analysisData);
-            } catch (e) {
-                content.innerHTML = `<p class="text-red-500 text-center">Nie udało się pobrać analizy dla ${ticker}.</p>`;
-            }
+        function renderClosedPositions(data) {
+            const container = document.getElementById('closed-positions-list');
+            container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Brak historii.</p>' : data.map(pos => `
+                <div class="bg-gray-700/50 p-3 rounded-lg">
+                    ...
+                </div>
+            `).join('');
         }
         
-        async function handleRevolutionClick() {
-            const resultsContainer = document.getElementById('revolution-results');
-            resultsContainer.innerHTML = '<p>Agent AI rozpoczyna skanowanie rynku...</p><div class="loader scanner-loader mt-2"></div>';
+        async function runFullAnalysis(ticker) {
+            if (!ticker) ticker = document.getElementById('search-ticker-input').value.trim().toUpperCase();
+            if (!ticker) return;
+            const content = document.getElementById('analysis-content');
+            document.getElementById('analysis-placeholder').classList.add('hidden');
+            content.innerHTML = '<div class="loader mx-auto"></div>';
             try {
-                const result = await fetchFromAPI('/api/run_revolution');
-                resultsContainer.innerHTML = `<p class="text-green-400">Rewolucja zakończona!</p><p>Znaleziono kandydatów: ${result.candidates.join(', ')}</p>`;
-                await updateDreamTeamList(); // Refresh the list
-            } catch (e) {
-                resultsContainer.innerHTML = `<p class="text-red-500">Błąd podczas Rewolucji AI.</p>`;
-            }
-        }
-
-        async function handleBacktestClick() {
-            const resultsContainer = document.getElementById('backtesting-results');
-            resultsContainer.innerHTML = '<p>Silnik "Wehikuł Czasu" rozpoczyna symulację...</p><div class="loader scanner-loader mt-2"></div>';
-            try {
-                // Hardcoded ticker for simplicity
-                const ticker = 'TSLA';
-                const result = await fetchFromAPI(`/api/run_backtest/${ticker}`);
-                resultsContainer.innerHTML = `<p class="text-green-400">Symulacja dla ${ticker} zakończona!</p>
-                <p>Całkowity P/L: <span class="${result.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${result.total_pnl.toFixed(2)}$</span></p>
-                <p>Liczba transakcji: ${result.trade_count}</p>`;
-            } catch (e) {
-                 resultsContainer.innerHTML = `<p class="text-red-500">Błąd podczas symulacji.</p>`;
-            }
-        }
-
-
-        // --- RENDERING ---
-        function renderDreamTeam(dreamTeamData) {
-            const container = document.getElementById('dream-team-list');
-            container.innerHTML = '';
-            if (!dreamTeamData || dreamTeamData.length === 0) {
-                container.innerHTML = `<p class="text-gray-500 text-sm px-2">Dream Team jest pusty.</p>`;
-                return;
-            }
-            dreamTeamData.forEach(stock => {
-                const div = document.createElement('div');
-                div.className = 'bg-gray-700/50 p-3 rounded-lg flex items-center justify-between text-sm';
-                const price = stock.currentPrice ? `$${stock.currentPrice.toFixed(2)}` : '--';
-                const change = stock.changePercent ? stock.changePercent : null;
-                const changeColor = change === null ? 'text-gray-400' : (change >= 0 ? 'text-green-400' : 'text-red-400');
-                const changeText = change === null ? '--' : `${change.toFixed(2)}%`;
-
-                div.innerHTML = `
-                    <div class="flex-1 min-w-0">
-                        <p class="font-bold truncate">${stock.ticker}</p>
-                        <p class="text-xs truncate ${stock.status === 'Gwiazda Zespołu' ? 'text-yellow-300' : 'text-gray-400'}">${stock.status}</p>
-                    </div>
-                    <div class="text-right ml-2">
-                        <p class="font-semibold">${price}</p>
-                        <p class="text-xs ${changeColor}">${changeText}</p>
-                    </div>`;
-                container.appendChild(div);
-            });
-        }
-
-        function renderFullAnalysis(data) {
-             const content = document.getElementById('analysis-content');
-             content.innerHTML = `
-                <div class="flex justify-between items-start mb-6">
-                    <div>
-                        <h2 class="text-4xl font-bold text-white">${data.overview.name}</h2>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-4xl font-bold ${data.overview.change >= 0 ? 'text-green-400' : 'text-red-400'}">$${data.overview.price.toFixed(2)}</p>
-                        <p class="text-lg ${data.overview.change >= 0 ? 'text-green-400' : 'text-red-400'}">${data.overview.change.toFixed(2)} (${data.overview.changePercent.toFixed(2)}%)</p>
-                    </div>
-                </div>
-                <div class="mb-6 p-5 rounded-xl border border-blue-400/50 bg-blue-900/20">
-                    <h3 class="text-xl font-bold mb-3 flex items-center"><i class="fas fa-robot mr-3"></i>Centrum Decyzyjne AI</h3>
-                    <p class="text-2xl font-bold text-blue-300">${data.aiSummary.recommendation}</p>
-                    <p class="text-gray-300 mt-1">${data.aiSummary.justification}</p>
-                </div>
-             `;
-        }
-
-        function switchMainView(view) {
-             currentView = view;
-             document.querySelectorAll('.view-toggle').forEach(toggle => {
-                if (toggle.dataset.view === view) {
-                    toggle.classList.replace('bg-gray-700', 'bg-gray-600');
-                    toggle.classList.remove('hover:bg-gray-600');
-                } else {
-                    toggle.classList.replace('bg-gray-600', 'bg-gray-700');
-                    toggle.classList.add('hover:bg-gray-600');
+                const data = await fetchFromAPI(`/api/full_analysis/${ticker}`);
+                let indicatorsHTML = '<ul>';
+                for(const [key, value] of Object.entries(data.indicators)) {
+                    indicatorsHTML += `<li>${key}: ${value ? value.toFixed(2) : 'N/A'}</li>`;
                 }
-             });
-             Object.entries(sections).forEach(([name, el]) => {
-                el.classList.toggle('hidden', name !== view);
-             });
+                indicatorsHTML += '</ul>';
+                content.innerHTML = `
+                    <h2 class="text-3xl font-bold">${data.overview.Name} (${data.overview.Symbol})</h2>
+                    <div class="mt-4">
+                        <h3 class="text-xl">Ryzyko (Agent Cerber)</h3>
+                        <p>Beta: ${data.risk.beta}</p>
+                        <p>Korelacja: ${data.risk.correlation}</p>
+                        <p class="font-bold ${data.risk.riskColor}">Poziom: ${data.risk.riskLevel}</p>
+                    </div>
+                    <div class="mt-4">
+                        <h3 class="text-xl">Wskaźniki Techniczne</h3>
+                        ${indicatorsHTML}
+                    </div>
+                `;
+            } catch(e) {
+                content.innerHTML = `<p class="text-red-400 text-center">Błąd analizy.</p>`;
+            }
+        }
+        window.runFullAnalysis = runFullAnalysis;
 
-             if (view === 'cockpit') {
-                updateCerberPortfolioAnalysis();
-             }
+        function openTransactionModal(ticker, data, type) {
+            appState.currentTransaction = { ticker, data, type };
+            document.getElementById('transaction-modal-title').textContent = type === 'open' ? `Otwórz Pozycję: ${ticker}` : `Zamknij Pozycję: ${ticker}`;
+            document.getElementById('price-input-container').style.display = type === 'close' ? 'block' : 'none';
+            document.getElementById('transaction-modal').classList.remove('hidden');
         }
 
-        function setupAccordionListeners() {
-            document.querySelectorAll('.accordion-header').forEach(header => {
-                header.addEventListener('click', () => {
-                    const content = header.nextElementSibling;
-                    const icon = header.querySelector('.accordion-icon');
-                    content.classList.toggle('hidden');
-                    icon.classList.toggle('rotate-180');
-                });
+        async function confirmTransaction() {
+            const { ticker, data, type } = appState.currentTransaction;
+            if (type === 'open') {
+                const payload = { ...data.plan, ticker, quantity: 1, reason: data.signal }; // Quantity hardcoded for now
+                await fetchFromAPI('/api/open_position', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+            } else {
+                const payload = { id: data.id, closePrice: parseFloat(document.getElementById('transaction-price').value) };
+                await fetchFromAPI('/api/close_position', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+            }
+            document.getElementById('transaction-modal').classList.add('hidden');
+            await updateFullPortfolioState();
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            document.querySelectorAll('.view-toggle').forEach(t => t.addEventListener('click', () => switchMainView(t.dataset.view)));
+            document.getElementById('analyze-button').addEventListener('click', () => runFullAnalysis());
+            // ... other event listeners
+            document.getElementById('cancel-transaction-btn').addEventListener('click', () => document.getElementById('transaction-modal').classList.add('hidden'));
+            document.getElementById('confirm-transaction-btn').addEventListener('click', confirmTransaction);
+            document.getElementById('open-positions-list').addEventListener('click', e => {
+                if(e.target.classList.contains('close-position-btn')) {
+                    const pos = appState.portfolio.openPositions.find(p => p.id === e.target.dataset.id);
+                    if(pos) openTransactionModal(pos.ticker, pos, 'close');
+                }
             });
-        }
-
-        function initializeApp() {
-            authSection.classList.add('hidden');
-            appContainer.classList.remove('hidden');
-            
-            switchMainView('portfolio');
-
-            document.querySelectorAll('.view-toggle').forEach(toggle => {
-                toggle.addEventListener('click', () => switchMainView(toggle.dataset.view));
-            });
-
-            setupAccordionListeners();
-            // Inicjalizacja barometru przy starcie
-            barometerStatus.innerHTML = '<div class="loader scanner-loader"></div>';
-            updateMacroClimate();
-            updateDreamTeamList();
-
-            analyzeButton.addEventListener('click', handleAnalyzeClick);
-            document.getElementById('start-revolution-button').addEventListener('click', handleRevolutionClick);
-            document.getElementById('start-backtest-button').addEventListener('click', handleBacktestClick);
-        }
-
-        // --- APP START ---
-        enterAppBtn.addEventListener('click', initializeApp);
-
+            // Initial data load
+            await updateFullPortfolioState();
+            const climate = await fetchFromAPI('/api/macro_climate');
+            document.getElementById('macro-climate-status').innerHTML = `<i class="fas ${climate.icon} ${climate.color} mr-2"></i><span class="${climate.color}">${climate.status}</span>`;
+            const barometer = await fetchFromAPI('/api/market_barometer');
+            document.getElementById('market-barometer-status').innerHTML = `<i class="fas ${barometer.icon} ${barometer.color} mr-2"></i><span class="${barometer.color}">${barometer.status}</span>`;
+        });
     </script>
 </body>
 </html>
