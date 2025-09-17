@@ -193,7 +193,7 @@
     
     <script type="module">
         // --- CONFIGURATION ---
-        const API_BASE_URL = "https://analizator-nasdaq-ui.onrender.com";
+        const API_BASE_URL = "https://analizator-nasdaq.onrender.com"; // POPRAWIONY ADRES!
 
         // --- GLOBAL STATE ---
         let currentView = 'portfolio';
@@ -217,11 +217,11 @@
             const url = `${API_BASE_URL}${endpoint}`;
             try {
                 const response = await fetch(url, options);
-                if (!response.ok) throw new Error(`Błąd sieci: ${response.statusText}`);
+                if (!response.ok) throw new Error(`Błąd sieci: Serwer zwrócił status ${response.status}`);
                 return await response.json();
             } catch (error) {
                 console.error(`Błąd podczas komunikacji z API (${endpoint}):`, error);
-                alert(`Nie można połączyć się z serwerem API. Upewnij się, że 'main.py' jest uruchomiony.\n\nBłąd: ${error.message}`);
+                alert(`Nie można połączyć się z serwerem API. Sprawdź, czy usługa na Render działa poprawnie.\n\nBłąd: ${error.message}`);
                 throw error;
             }
         }
@@ -232,7 +232,9 @@
             container.innerHTML = '<div class="loader scanner-loader"></div>';
             try {
                 const data = await fetchFromAPI('/api/macro_climate');
-                container.innerHTML = `<i class="fas ${data.icon} ${data.color} mr-2"></i><span class="${data.color}">${data.status}</span>`;
+                const color = data.color || 'text-gray-400';
+                const icon = data.icon || 'fa-question-circle';
+                container.innerHTML = `<i class="fas ${icon} ${color} mr-2"></i><span class="${color}">${data.status}</span>`;
             } catch (e) { container.textContent = 'Błąd'; }
         }
 
@@ -241,7 +243,13 @@
             container.innerHTML = '<div class="loader scanner-loader"></div>';
              try {
                 const data = await fetchFromAPI('/api/portfolio_risk');
-                container.innerHTML = `<p class="text-gray-300">Poziom korelacji portfela: <strong class="${data.color}">${data.level} (${data.correlation.toFixed(2)})</strong></p><p class="text-xs text-gray-500 mt-2">${data.summary}</p>`;
+                const level = data.correlation_level || 'Brak Danych';
+                const correlation = data.average_correlation !== null ? data.average_correlation.toFixed(2) : 'N/A';
+                let warningsHTML = '';
+                if(data.warnings && data.warnings.length > 0){
+                    warningsHTML = `<ul class="list-disc list-inside mt-2 text-red-400/80">${data.warnings.map(w => `<li>${w}</li>`).join('')}</ul>`;
+                }
+                container.innerHTML = `<p class="text-gray-300">Poziom korelacji portfela: <strong class="text-white">${level} (${correlation})</strong></p>${warningsHTML}`;
             } catch (e) { container.innerHTML = '<p class="text-red-500">Błąd analizy.</p>'; }
         }
 
@@ -337,14 +345,15 @@
 
         function renderFullAnalysis(data) {
              const content = document.getElementById('analysis-content');
+             const changeColor = data.overview.change >= 0 ? 'text-green-400' : 'text-red-400';
              content.innerHTML = `
                 <div class="flex justify-between items-start mb-6">
                     <div>
                         <h2 class="text-4xl font-bold text-white">${data.overview.name}</h2>
                     </div>
                     <div class="text-right">
-                        <p class="text-4xl font-bold ${data.overview.change >= 0 ? 'text-green-400' : 'text-red-400'}">$${data.overview.price.toFixed(2)}</p>
-                        <p class="text-lg ${data.overview.change >= 0 ? 'text-green-400' : 'text-red-400'}">${data.overview.change.toFixed(2)} (${data.overview.changePercent.toFixed(2)}%)</p>
+                        <p class="text-4xl font-bold ${changeColor}">$${data.overview.price.toFixed(2)}</p>
+                        <p class="text-lg ${changeColor}">${data.overview.change.toFixed(2)} (${data.overview.changePercent.toFixed(2)}%)</p>
                     </div>
                 </div>
                 <div class="mb-6 p-5 rounded-xl border border-blue-400/50 bg-blue-900/20">
@@ -414,6 +423,4 @@
     </script>
 </body>
 </html>
-
-
 
