@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import pandas_ta as ta
-from pantic import BaseModel
+from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 # --- Importy Agentów i Modułów ---
@@ -14,7 +14,6 @@ from data_fetcher import DataFetcher, transform_to_dataframe
 from portfolio_manager import PortfolioManager
 from selection_agent import run_market_scan
 from zlota_liga_agent import run_golden_league_analysis
-# UWAGA: Zmieniamy import, aby mieć dostęp do poszczególnych agentów
 from szybka_liga_agent import run_quick_league_scan, agent_sygnalu, agent_potwierdzenia, agent_historyczny
 from backtesting_agent import run_backtest
 from macro_agent import get_macro_climate_analysis, get_market_barometer
@@ -90,7 +89,7 @@ async def api_get_cockpit_data():
 
 @app.get("/api/portfolio_state")
 async def api_get_portfolio_state():
-    return portfolio_manager.get_full_portfolio_state({}) # Ceny będą pobierane po stronie klienta
+    return portfolio_manager.get_full_portfolio_state({})
 
 @app.post("/api/open_position")
 async def api_open_position(payload: PositionPayload):
@@ -106,15 +105,10 @@ async def api_close_position(payload: ClosePositionPayload):
     
 @app.get("/api/run_backtest")
 async def api_run_backtest(period: int = 365, risk_level: int = 2):
-    """
-    Przebudowany endpoint do uruchamiania backtestu.
-    Teraz przekazuje logikę agentów jako argument, aby uniknąć cyklicznych importów.
-    """
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
         raise HTTPException(status_code=400, detail="Dream Team jest pusty.")
     
-    # Przygotowujemy słownik z logiką strategii
     strategy_logic = {
         'sygnalu': agent_sygnalu,
         'potwierdzenia': agent_potwierdzenia,
@@ -125,11 +119,6 @@ async def api_run_backtest(period: int = 365, risk_level: int = 2):
 
 @app.get("/api/full_analysis/{ticker}")
 async def api_full_analysis(ticker: str):
-    """
-    Przebudowany endpoint do pełnej analizy 360 stopni.
-    Zbiera wszystkie dane, oblicza wskaźniki i zwraca kompletny pakiet analityczny.
-    """
-    # 1. Pobieranie surowych danych
     overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
     daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "full"})
     qqq_daily_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
@@ -137,23 +126,19 @@ async def api_full_analysis(ticker: str):
     if not overview_data or not daily_data_json:
         raise HTTPException(status_code=404, detail=f"Brak kluczowych danych dla {ticker}.")
 
-    # 2. Transformacja danych do DataFrame
     stock_df = transform_to_dataframe(daily_data_json)
     market_df = transform_to_dataframe(qqq_daily_json)
     if stock_df is None:
         raise HTTPException(status_code=500, detail="Błąd przetwarzania danych historycznych.")
 
-    # 3. Obliczanie wskaźników technicznych za pomocą pandas-ta
     stock_df.ta.rsi(length=14, append=True)
     stock_df.ta.macd(fast=12, slow=26, signal=9, append=True)
     stock_df.ta.bbands(length=20, append=True)
     stock_df.ta.stoch(k=14, d=3, smooth_k=3, append=True)
     stock_df.ta.adx(length=14, append=True)
 
-    # 4. Uruchamianie agentów analitycznych
     risk_analysis = analyze_single_stock_risk(stock_df, market_df, overview_data)
     
-    # 5. Przygotowanie finalnej odpowiedzi
     latest_indicators = stock_df.iloc[-1].to_dict()
 
     return {
@@ -176,5 +161,14 @@ async def api_full_analysis(ticker: str):
 # --- Uruchomienie Serwera ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    # Poprawka dla Render: jawne ustawienie parametrów SSL
+    # pozwala proxy (Render) na zarządzanie certyfikatami HTTPS
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True,
+        ssl_keyfile=None,
+        ssl_certfile=None
+    )
 
