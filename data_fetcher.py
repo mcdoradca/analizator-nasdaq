@@ -12,12 +12,14 @@ from collections import deque
 import pandas as pd
 from typing import Dict, Optional, Any
 
-# --- Cache ---
 # Prosty cache w pamięci z czasem wygaśnięcia
 _cache: Dict[str, Any] = {}
 CACHE_DURATION = 4 * 60 * 60  # 4 godziny
 
 def transform_to_dataframe(data: Dict, data_key: str = "Time Series (Daily)") -> Optional[pd.DataFrame]:
+    """
+    Transformuje odpowiedź JSON z Alpha Vantage do pandas.DataFrame.
+    """
     if not data or not isinstance(data, dict) or data_key not in data:
         print(f"Błąd transformacji: Brak klucza '{data_key}' lub nieprawidłowy format danych.")
         return None
@@ -43,9 +45,10 @@ class DataFetcher:
         self.api_call_timestamps = deque()
         self.requests_per_minute = 75
         self.retry_attempts = 3
-        self.retry_delay = 5  # sekundy
+        self.retry_delay = 5
 
     def _wait_if_needed(self):
+        """Inteligentnie zarządza częstotliwością zapytań."""
         now = time.time()
         while self.api_call_timestamps and self.api_call_timestamps[0] <= now - 60:
             self.api_call_timestamps.popleft()
@@ -55,6 +58,9 @@ class DataFetcher:
             time.sleep(time_to_wait)
 
     def get_data(self, params: dict) -> Optional[Any]:
+        """
+        Pobiera dane z API, obsługując cache, limity, ponawianie prób oraz formaty JSON i CSV.
+        """
         cache_key = frozenset(params.items())
         now = time.time()
         if cache_key in _cache and (now - _cache[cache_key]['timestamp']) < CACHE_DURATION:
@@ -72,20 +78,21 @@ class DataFetcher:
                 
                 self.api_call_timestamps.append(time.time())
 
-                # --- KLUCZOWA POPRAWKA: Obsługa CSV i JSON ---
+                # KLUCZOWA POPRAWKA: Rozróżnianie content-type
                 content_type = response.headers.get('Content-Type', '')
                 if 'csv' in content_type:
                     data = response.text
                 else:
                     data = response.json()
                 
+                # Walidacja odpowiedzi JSON
                 if isinstance(data, dict):
                     if "Error Message" in data:
                         print(f"BŁĄD API: {data['Error Message']}")
                         return None
                     if "Information" in data:
                         print(f"INFO API: {data['Information']}")
-                        time.sleep(self.retry_delay) # Czekamy, bo to może być informacja o limicie
+                        time.sleep(self.retry_delay)
                         continue
                 
                 _cache[cache_key] = {'data': data, 'timestamp': now}
@@ -98,5 +105,6 @@ class DataFetcher:
                 print("BŁĄD: Nie udało się zdekodować odpowiedzi JSON z API.")
                 return None
         
+        print(f"BŁĄD: Nie udało się pobrać danych po {self.retry_attempts} próbach.")
         return None
 
