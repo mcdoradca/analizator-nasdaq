@@ -161,8 +161,8 @@
     </div>
     
     <script type="module">
-        // --- NAPRAWIONO: Dynamiczny adres URL API ---
-        const API_BASE_URL = ''; // Pusty string oznacza ten sam host, co strona. Działa lokalnie i na Render.
+        // --- KLUCZOWA ZMIANA: Stały adres URL backendu ---
+        const API_BASE_URL = 'https://analizator-nasdaq.onrender.com';
 
         // --- GLOBAL STATE ---
         let currentView = 'analysis';
@@ -471,3 +471,4 @@
     </script>
 </body>
 </html>
+
