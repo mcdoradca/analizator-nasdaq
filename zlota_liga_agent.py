@@ -23,7 +23,7 @@ def expert_agent_technik(tech_data):
         stoch_k = safe_float(get_latest_value(tech_data.get('stoch'), 'Technical Analysis: STOCH', 'SlowK'))
         adx_val = safe_float(get_latest_value(tech_data.get('adx'), 'Technical Analysis: ADX', 'ADX'))
         
-        # Sprawdzamy czy dane nie są puste
+        # Zabezpieczenie: Sprawdzamy czy kluczowe dane nie są puste
         if rsi_val is None or stoch_k is None or adx_val is None:
              return 50
 
@@ -53,7 +53,7 @@ def expert_agent_technik(tech_data):
 
     except Exception as e:
         print(f"[Ekspert Technik] Błąd analizy: {e}")
-        return 50 # Zwróć neutralny wynik w przypadku błędu
+        return 50
         
     return max(0, min(100, score))
 
@@ -64,8 +64,9 @@ def expert_agent_fundamentalista(overview_data):
     Ocenia kluczowe wskaźniki finansowe spółki.
     Zwraca wynik w skali 0-100.
     """
+    # Zabezpieczenie: Niska ocena w przypadku braku danych
     if not overview_data or not isinstance(overview_data, dict):
-        return 30 # Niska ocena za brak danych
+        return 30
     score = 50
     try:
         pe = safe_float(overview_data.get('PERatio'), default=999)
@@ -98,7 +99,6 @@ def expert_agent_kwant(daily_data, overview_data):
         return 30
     score = 50
     try:
-        # Analiza częstotliwości dni wzrostowych
         series = list(daily_data.get('Time Series (Daily)', {}).values())[:90]
         if len(series) > 1:
             growth_days = sum(1 for i in range(len(series) - 1) if safe_float(series[i]['4. close']) > safe_float(series[i+1]['4. close']))
@@ -106,7 +106,6 @@ def expert_agent_kwant(daily_data, overview_data):
             if growth_frequency > 55: score += 20
             elif growth_frequency > 50: score += 10
 
-        # Analiza Bety
         beta = safe_float(overview_data.get('Beta'), default=1.0)
         if 0.8 < beta < 1.5: score += 15
         elif beta > 2.0: score -= 15
@@ -126,7 +125,7 @@ def expert_agent_straznik(news_data, ticker):
     """
     try:
         if not news_data or not isinstance(news_data, dict) or 'feed' not in news_data:
-            return 60 # Neutralny, jeśli brak wiadomości
+            return 60
             
         sentiments = [
             safe_float(s.get('sentiment_score', 0.0)) for item in news_data.get('feed', [])
@@ -138,11 +137,11 @@ def expert_agent_straznik(news_data, ticker):
 
         avg_sentiment = sum(sentiments) / len(sentiments)
 
-        if avg_sentiment > 0.35: return 100 # Bardzo Pozytywny
-        if avg_sentiment > 0.1: return 80  # Pozytywny
-        if avg_sentiment < -0.35: return 0   # Bardzo Negatywny
-        if avg_sentiment < -0.1: return 20  # Negatywny
-        return 60 # Neutralny
+        if avg_sentiment > 0.35: return 100
+        if avg_sentiment > 0.1: return 80
+        if avg_sentiment < -0.35: return 0
+        if avg_sentiment < -0.1: return 20
+        return 60
     except Exception as e:
         print(f"[Ekspert Strażnik] Błąd analizy: {e}")
         return 60
@@ -160,15 +159,14 @@ def run_zlota_liga_analysis(tickers, data_fetcher):
     for ticker in tickers:
         print(f"[Złota Liga] Analizuję {ticker}...")
         try:
-            # Zebranie wszystkich danych potrzebnych ekspertom
             overview = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
             daily = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
             news = data_fetcher.get_data({"function": "NEWS_SENTIMENT", "tickers": ticker})
             quote = data_fetcher.get_data({"function": "GLOBAL_QUOTE", "symbol": ticker})
             
-            # Walidacja kluczowych danych
+            # Zabezpieczenie: Walidacja kluczowych danych przed kontynuacją
             if not overview or not daily or not quote:
-                print(f"[Złota Liga] Pomijam {ticker} - brak podstawowych danych.")
+                print(f"[Złota Liga] Pomijam {ticker} - brak podstawowych danych do analizy.")
                 continue
 
             tech_data_payload = {
@@ -180,7 +178,6 @@ def run_zlota_liga_analysis(tickers, data_fetcher):
                 'adx': data_fetcher.get_data({"function": "ADX", "symbol": ticker, "interval": "daily", "time_period": 14})
             }
 
-            # Uruchomienie ekspertów
             tech_score = expert_agent_technik(tech_data_payload)
             fundamental_score = expert_agent_fundamentalista(overview)
             quant_score = expert_agent_kwant(daily, overview)
@@ -203,3 +200,4 @@ def run_zlota_liga_analysis(tickers, data_fetcher):
             
     print(f"[Złota Liga] Analiza zakończona. Oceniono {len(results)} spółek.")
     return sorted(results, key=lambda x: x['avgScore'], reverse=True)
+
