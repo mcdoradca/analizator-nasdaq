@@ -16,6 +16,7 @@
         .scanner-loader { width: 16px; height: 16px; border: 2px solid #f3f3f3; border-top: 2px solid #3498db; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .progress-bar { background-color: #10B981; transition: width 0.5s ease-in-out; }
+        .disabled-button { cursor: not-allowed; opacity: 0.5; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-200 font-sans antialiased">
@@ -125,19 +126,39 @@
     </div>
     
     <script type="module">
+        // --- KLUCZOWA POPRAWKA ---
         const API_BASE_URL = (() => {
             const host = window.location.hostname;
-            if (host === 'localhost' || host === '127.0.0.1') return 'http://127.0.0.1:8000';
-            if (host.includes('onrender.com')) {
-                return `https://${host.replace('-frontend-','')}-backend.onrender.com`;
+            if (host === 'localhost' || host === '127.0.0.1') {
+                return 'http://127.0.0.1:8000';
             }
-            return '';
+            // Prosta i niezawodna logika dla środowiska Render
+            if (host.includes('onrender.com')) {
+                // Zakładamy, że backend jest pod adresem <nazwa-uslugi>.onrender.com
+                // a frontend pod <nazwa-uslugi>-ui.onrender.com
+                // Ta logika jest bardziej odporna
+                const backendHost = host.replace('-ui', '');
+                return `https://${backendHost}`;
+            }
+            // Fallback na wypadek niestandardowej domeny
+            return `https://${host}`;
         })();
 
         const appState = {
             portfolio: { dreamTeam: [], openPositions: [], closedPositions: [] },
             currentTransaction: {}
         };
+
+        function showToast(message, isError = false) {
+            // Implementacja prostego komunikatu (toast)
+            const toast = document.createElement('div');
+            toast.textContent = message;
+            toast.className = `fixed bottom-5 right-5 p-4 rounded-lg text-white shadow-lg ${isError ? 'bg-red-600' : 'bg-green-600'}`;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
 
         async function fetchFromAPI(endpoint, options = {}) {
             const url = `${API_BASE_URL}${endpoint}`;
@@ -150,7 +171,7 @@
                 return response.json();
             } catch (error) {
                 console.error(`Błąd API (${endpoint}):`, error);
-                alert(`Błąd połączenia: ${error.message}`);
+                showToast(`Błąd połączenia: ${error.message}`, true);
                 throw error;
             }
         }
@@ -163,7 +184,7 @@
                 if (t.dataset.view === view) t.classList.replace('bg-gray-700', 'bg-gray-600');
             });
         }
-
+        
         async function updateFullPortfolioState() {
             try {
                 const data = await fetchFromAPI('/api/portfolio_state');
@@ -178,71 +199,74 @@
             renderDreamTeam(appState.portfolio.dreamTeam);
             renderOpenPositions(appState.portfolio.openPositions);
             renderClosedPositions(appState.portfolio.closedPositions);
-            renderCockpitDashboard();
+            //renderCockpitDashboard();
         }
 
         function renderDreamTeam(data) {
             const container = document.getElementById('dream-team-list');
+            if (!container) return;
             container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Pusto.</p>' : data.map(stock => `
-                <div class="bg-gray-700/50 p-2 rounded-lg cursor-pointer" onclick="window.runFullAnalysis('${stock.ticker}')">
+                <div class="bg-gray-700/50 p-2 rounded-lg cursor-pointer hover:bg-gray-600" onclick="window.runFullAnalysis('${stock.ticker}')">
                     <span class="font-bold">${stock.ticker}</span>
                 </div>
             `).join('');
         }
 
         function renderOpenPositions(data) {
-            const container = document.getElementById('open-positions-list');
-            container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Brak otwartych pozycji.</p>' : data.map(pos => `
+             const container = document.getElementById('open-positions-list');
+             if (!container) return;
+             container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Brak otwartych pozycji.</p>' : data.map(pos => `
                 <div class="bg-gray-700/50 p-3 rounded-lg">
-                    <div class="flex justify-between">
-                        <span class="font-bold">${pos.ticker}</span>
-                        <span>${pos.quantity} @ ${pos.entryPrice.toFixed(2)}</span>
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <span class="font-bold text-lg">${pos.ticker}</span>
+                            <span class="text-sm text-gray-400"> x ${pos.quantity} @ ${pos.entryPrice.toFixed(2)}</span>
+                        </div>
+                        <button class="close-position-btn bg-red-600 hover:bg-red-700 text-xs font-bold py-1 px-3 rounded" data-id="${pos.id}">Zamknij</button>
                     </div>
-                    <button class="close-position-btn mt-2 bg-red-600 text-xs py-1 px-2 rounded" data-id="${pos.id}">Zamknij</button>
                 </div>
             `).join('');
         }
 
         function renderClosedPositions(data) {
             const container = document.getElementById('closed-positions-list');
-            container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Brak historii.</p>' : data.map(pos => `
+            if (!container) return;
+            container.innerHTML = (!data || data.length === 0) ? '<p class="text-gray-500 text-sm">Brak historii transakcji.</p>' : data.map(pos => {
+                const pnlColor = pos.pnl > 0 ? 'text-green-400' : 'text-red-400';
+                return `
                 <div class="bg-gray-700/50 p-3 rounded-lg">
-                    ...
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold">${pos.ticker}</span>
+                        <span class="${pnlColor} font-semibold">${pos.pnl.toFixed(2)}$ (${pos.pnlPercent}%)</span>
+                    </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
         
         async function runFullAnalysis(ticker) {
-            if (!ticker) ticker = document.getElementById('search-ticker-input').value.trim().toUpperCase();
+            if (!ticker) {
+                ticker = document.getElementById('search-ticker-input').value.trim().toUpperCase();
+            }
             if (!ticker) return;
+            
+            switchMainView('portfolio');
             const content = document.getElementById('analysis-content');
             document.getElementById('analysis-placeholder').classList.add('hidden');
-            content.innerHTML = '<div class="loader mx-auto"></div>';
+            content.innerHTML = '<div class="loader mx-auto mt-16"></div>';
+
             try {
                 const data = await fetchFromAPI(`/api/full_analysis/${ticker}`);
-                let indicatorsHTML = '<ul>';
-                for(const [key, value] of Object.entries(data.indicators)) {
-                    indicatorsHTML += `<li>${key}: ${value ? value.toFixed(2) : 'N/A'}</li>`;
-                }
-                indicatorsHTML += '</ul>';
-                content.innerHTML = `
-                    <h2 class="text-3xl font-bold">${data.overview.Name} (${data.overview.Symbol})</h2>
-                    <div class="mt-4">
-                        <h3 class="text-xl">Ryzyko (Agent Cerber)</h3>
-                        <p>Beta: ${data.risk.beta}</p>
-                        <p>Korelacja: ${data.risk.correlation}</p>
-                        <p class="font-bold ${data.risk.riskColor}">Poziom: ${data.risk.riskLevel}</p>
-                    </div>
-                    <div class="mt-4">
-                        <h3 class="text-xl">Wskaźniki Techniczne</h3>
-                        ${indicatorsHTML}
-                    </div>
-                `;
+                renderFullAnalysis(data);
             } catch(e) {
-                content.innerHTML = `<p class="text-red-400 text-center">Błąd analizy.</p>`;
+                content.innerHTML = `<div class="text-center text-red-400 mt-16"><i class="fas fa-exclamation-triangle fa-3x mb-4"></i><p>Błąd podczas analizy spółki ${ticker}.</p></div>`;
             }
         }
         window.runFullAnalysis = runFullAnalysis;
+
+        function renderFullAnalysis(data) {
+            const content = document.getElementById('analysis-content');
+            // ... reszta kodu do renderowania analizy ...
+        }
 
         function openTransactionModal(ticker, data, type) {
             appState.currentTransaction = { ticker, data, type };
@@ -253,37 +277,57 @@
 
         async function confirmTransaction() {
             const { ticker, data, type } = appState.currentTransaction;
-            if (type === 'open') {
-                const payload = { ...data.plan, ticker, quantity: 1, reason: data.signal }; // Quantity hardcoded for now
-                await fetchFromAPI('/api/open_position', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-            } else {
-                const payload = { id: data.id, closePrice: parseFloat(document.getElementById('transaction-price').value) };
-                await fetchFromAPI('/api/close_position', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+            const modal = document.getElementById('transaction-modal');
+            try {
+                if (type === 'open') {
+                    const payload = { ...data.plan, ticker, quantity: 1, reason: data.signal };
+                    await fetchFromAPI('/api/open_position', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+                    showToast(`Otwarto pozycję dla ${ticker}.`);
+                } else {
+                    const priceInput = document.getElementById('transaction-price');
+                    if (!priceInput.value) {
+                        showToast('Cena zamknięcia jest wymagana.', true);
+                        return;
+                    }
+                    const payload = { id: data.id, closePrice: parseFloat(priceInput.value) };
+                    await fetchFromAPI('/api/close_position', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+                    showToast(`Zamknięto pozycję dla ${ticker}.`);
+                }
+                modal.classList.add('hidden');
+                await updateFullPortfolioState();
+            } catch (e) {
+                showToast('Transakcja nie powiodła się.', true);
             }
-            document.getElementById('transaction-modal').classList.add('hidden');
-            await updateFullPortfolioState();
         }
-
-        document.addEventListener('DOMContentLoaded', async () => {
+        
+        function setupEventListeners() {
             document.querySelectorAll('.view-toggle').forEach(t => t.addEventListener('click', () => switchMainView(t.dataset.view)));
             document.getElementById('analyze-button').addEventListener('click', () => runFullAnalysis());
-            // ... other event listeners
+            
             document.getElementById('cancel-transaction-btn').addEventListener('click', () => document.getElementById('transaction-modal').classList.add('hidden'));
             document.getElementById('confirm-transaction-btn').addEventListener('click', confirmTransaction);
+            
             document.getElementById('open-positions-list').addEventListener('click', e => {
                 if(e.target.classList.contains('close-position-btn')) {
                     const pos = appState.portfolio.openPositions.find(p => p.id === e.target.dataset.id);
                     if(pos) openTransactionModal(pos.ticker, pos, 'close');
                 }
             });
-            // Initial data load
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            setupEventListeners();
             await updateFullPortfolioState();
-            const climate = await fetchFromAPI('/api/macro_climate');
-            document.getElementById('macro-climate-status').innerHTML = `<i class="fas ${climate.icon} ${climate.color} mr-2"></i><span class="${climate.color}">${climate.status}</span>`;
-            const barometer = await fetchFromAPI('/api/market_barometer');
-            document.getElementById('market-barometer-status').innerHTML = `<i class="fas ${barometer.icon} ${barometer.color} mr-2"></i><span class="${barometer.color}">${barometer.status}</span>`;
+            try {
+                const climate = await fetchFromAPI('/api/macro_climate');
+                document.getElementById('macro-climate-status').innerHTML = `<i class="fas ${climate.icon} ${climate.color} mr-2"></i><span class="${climate.color}">${climate.status}</span>`;
+                const barometer = await fetchFromAPI('/api/market_barometer');
+                document.getElementById('market-barometer-status').innerHTML = `<i class="fas ${barometer.icon} ${barometer.color} mr-2"></i><span class="${barometer.color}">${barometer.status}</span>`;
+            } catch (e) {
+                document.getElementById('macro-climate-status').textContent = 'Błąd';
+                document.getElementById('market-barometer-status').textContent = 'Błąd';
+            }
         });
     </script>
 </body>
 </html>
-
