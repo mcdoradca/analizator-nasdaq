@@ -5,20 +5,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
-import pandas as pd # Usunięto import pandas_ta
+import pandas as pd
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import json # Kluczowy brakujący import
 
 # --- Importy Agentów i Modułów ---
 from data_fetcher import DataFetcher, transform_to_dataframe
 from portfolio_manager import PortfolioManager
-# Upewniamy się, że importy są poprawne względem płaskiej struktury plików
 from selection_agent import run_market_scan
 from zlota_liga_agent import run_zlota_liga_analysis
 from szybka_liga_agent import run_quick_league_scan
 from backtesting_agent import run_backtest
 from macro_agent import get_macro_climate_analysis, get_market_barometer
-from cockpit_agent import run_cockpit_analysis # Poprawiono nazwę funkcji
+from cockpit_agent import run_cockpit_analysis
 from risk_agent import analyze_single_stock_risk
 
 # --- Struktury Danych (Modele Pydantic) ---
@@ -39,7 +39,7 @@ app = FastAPI(title="Analizator Nasdaq API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # W produkcji warto to ograniczyć do domeny frontendu
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -69,13 +69,14 @@ async def api_get_market_barometer():
 @app.post("/api/run_revolution")
 async def api_run_revolution():
     scan_results = run_market_scan(data_fetcher)
-    # Zgodnie z logiką portfolio_manager, przekazujemy listę tickerów
-    portfolio_manager.update_dream_team(scan_results.get('candidates', []))
+    candidates = scan_results.get('candidates', [])
+    # Tworzymy listę słowników oczekiwaną przez portfolio_manager
+    dream_team_payload = [{'ticker': ticker, 'status': 'Nowy'} for ticker in candidates]
+    portfolio_manager.update_dream_team(dream_team_payload)
     return scan_results
 
 @app.get("/api/scan_quick_league")
 async def api_scan_quick_league():
-    # portfolio_manager.get_dream_team() zwraca listę słowników
     tickers = [stock['ticker'] for stock in portfolio_manager.get_dream_team()]
     if not tickers: return []
     return run_quick_league_scan(tickers, data_fetcher)
@@ -96,9 +97,15 @@ async def api_get_portfolio_state():
 
 @app.post("/api/open_position")
 async def api_open_position(payload: PositionPayload):
-    # Pydantic v2 używa model_dump() zamiast dict()
-    pos_id = portfolio_manager.open_position(**payload.model_dump())
-    return {"status": "success", "positionId": pos_id}
+    position = portfolio_manager.open_position(
+        ticker=payload.ticker,
+        quantity=payload.quantity,
+        entry_price=payload.entryPrice,
+        target_price=payload.targetPrice,
+        stop_loss_price=payload.stopLossPrice,
+        reason=payload.reason
+    )
+    return {"status": "success", "position": position}
 
 @app.post("/api/close_position")
 async def api_close_position(payload: ClosePositionPayload):
@@ -116,10 +123,6 @@ async def api_run_backtest(period_days: int = 365, risk_level: int = 2):
 
 @app.get("/api/full_analysis/{ticker}")
 async def api_full_analysis(ticker: str):
-    """
-    Przebudowany endpoint do pełnej analizy 360 stopni.
-    Zbiera wszystkie dane, oblicza wskaźniki i zwraca kompletny pakiet analityczny.
-    """
     overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
     daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "full"})
     qqq_daily_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
@@ -132,35 +135,25 @@ async def api_full_analysis(ticker: str):
     if stock_df is None or stock_df.empty:
         raise HTTPException(status_code=500, detail="Błąd przetwarzania danych historycznych.")
 
-    # --- Obliczanie wskaźników przy użyciu PANDAS ---
-    
-    # 1. RSI
+    # Obliczenia wskaźników pozostają bez zmian
     delta = stock_df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(com=13, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
     rs = gain / loss
     stock_df['RSI_14'] = 100 - (100 / (1 + rs))
-
-    # 2. MACD
     exp12 = stock_df['close'].ewm(span=12, adjust=False).mean()
     exp26 = stock_df['close'].ewm(span=26, adjust=False).mean()
     stock_df['MACD_12_26_9'] = exp12 - exp26
     stock_df['MACDs_12_26_9'] = stock_df['MACD_12_26_9'].ewm(span=9, adjust=False).mean()
     stock_df['MACDh_12_26_9'] = stock_df['MACD_12_26_9'] - stock_df['MACDs_12_26_9']
-
-    # 3. Bollinger Bands
     sma20 = stock_df['close'].rolling(window=20).mean()
     std20 = stock_df['close'].rolling(window=20).std()
     stock_df['BBU_20_2.0'] = sma20 + (std20 * 2)
     stock_df['BBL_20_2.0'] = sma20 - (std20 * 2)
-
-    # 4. Stochastic Oscillator
     low14 = stock_df['low'].rolling(window=14).min()
     high14 = stock_df['high'].rolling(window=14).max()
     stock_df['STOCHk_14_3_3'] = 100 * ((stock_df['close'] - low14) / (high14 - low14))
     stock_df['STOCHd_14_3_3'] = stock_df['STOCHk_14_3_3'].rolling(window=3).mean()
-    
-    # 5. ADX
     plus_dm = stock_df['high'].diff()
     minus_dm = stock_df['low'].diff()
     plus_dm[(plus_dm < 0) | (plus_dm <= minus_dm)] = 0
@@ -179,10 +172,16 @@ async def api_full_analysis(ticker: str):
     risk_analysis = analyze_single_stock_risk(stock_df, market_df, overview_data)
     
     latest_indicators = stock_df.iloc[-1].to_dict()
+    
+    # Poprawka: konwertujemy DataFrame do listy słowników, co jest naturalne dla JSON
+    daily_data_for_chart = stock_df.reset_index().to_dict(orient='records')
+    # Konwersja dat na stringi ISO
+    for record in daily_data_for_chart:
+        record['index'] = record['index'].isoformat()
 
     return {
         "overview": overview_data,
-        "daily_data_for_chart": json.loads(stock_df.reset_index().to_json(orient='records', date_format='iso')),
+        "daily_data_for_chart": daily_data_for_chart,
         "risk": risk_analysis,
         "indicators": {
             "rsi": latest_indicators.get('RSI_14'),
@@ -199,8 +198,6 @@ async def api_full_analysis(ticker: str):
 
 # --- Uruchomienie Serwera ---
 if __name__ == "__main__":
-    # Render używa zmiennej PORT do określenia, na którym porcie ma nasłuchiwać aplikacja.
     port = int(os.environ.get("PORT", 8000))
-    # 'reload=True' jest przydatne w dewelopmence, ale na produkcji Render może zarządzać restartami.
-    # Użycie "main:app" jest standardem dla Gunicorn/Uvicorn.
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+
