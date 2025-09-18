@@ -5,19 +5,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
-import pandas_ta as ta
+import pandas as pd # Usunięto import pandas_ta
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 # --- Importy Agentów i Modułów ---
 from data_fetcher import DataFetcher, transform_to_dataframe
 from portfolio_manager import PortfolioManager
+# Upewniamy się, że importy są poprawne względem płaskiej struktury plików
 from selection_agent import run_market_scan
-from zlota_liga_agent import run_golden_league_analysis
-from szybka_liga_agent import run_quick_league_scan, agent_sygnalu, agent_potwierdzenia, agent_historyczny
+from zlota_liga_agent import run_zlota_liga_analysis
+from szybka_liga_agent import run_quick_league_scan
 from backtesting_agent import run_backtest
 from macro_agent import get_macro_climate_analysis, get_market_barometer
-from cockpit_agent import analyze_cockpit_data
+from cockpit_agent import run_cockpit_analysis # Poprawiono nazwę funkcji
 from risk_agent import analyze_single_stock_risk
 
 # --- Struktury Danych (Modele Pydantic) ---
@@ -38,7 +39,7 @@ app = FastAPI(title="Analizator Nasdaq API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # W produkcji warto to ograniczyć do domeny frontendu
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,32 +69,35 @@ async def api_get_market_barometer():
 @app.post("/api/run_revolution")
 async def api_run_revolution():
     scan_results = run_market_scan(data_fetcher)
-    portfolio_manager.update_dream_team(scan_results['candidates'])
+    # Zgodnie z logiką portfolio_manager, przekazujemy listę tickerów
+    portfolio_manager.update_dream_team(scan_results.get('candidates', []))
     return scan_results
 
 @app.get("/api/scan_quick_league")
 async def api_scan_quick_league():
-    tickers = portfolio_manager.get_dream_team_tickers()
+    # portfolio_manager.get_dream_team() zwraca listę słowników
+    tickers = [stock['ticker'] for stock in portfolio_manager.get_dream_team()]
     if not tickers: return []
     return run_quick_league_scan(tickers, data_fetcher)
 
 @app.get("/api/analyze_golden_league")
 async def api_analyze_golden_league():
-    tickers = portfolio_manager.get_dream_team_tickers()
+    tickers = [stock['ticker'] for stock in portfolio_manager.get_dream_team()]
     if not tickers: return []
-    return run_golden_league_analysis(tickers, data_fetcher)
+    return run_zlota_liga_analysis(tickers, data_fetcher)
 
 @app.get("/api/cockpit_data")
 async def api_get_cockpit_data():
-    return analyze_cockpit_data(portfolio_manager.get_closed_positions())
+    return run_cockpit_analysis(portfolio_manager.get_closed_positions())
 
 @app.get("/api/portfolio_state")
 async def api_get_portfolio_state():
-    return portfolio_manager.get_full_portfolio_state({})
+    return portfolio_manager.get_full_portfolio_state()
 
 @app.post("/api/open_position")
 async def api_open_position(payload: PositionPayload):
-    pos_id = portfolio_manager.open_position(**payload.dict())
+    # Pydantic v2 używa model_dump() zamiast dict()
+    pos_id = portfolio_manager.open_position(**payload.model_dump())
     return {"status": "success", "positionId": pos_id}
 
 @app.post("/api/close_position")
@@ -104,21 +108,18 @@ async def api_close_position(payload: ClosePositionPayload):
     return {"status": "success", "closedPosition": closed_pos}
     
 @app.get("/api/run_backtest")
-async def api_run_backtest(period: int = 365, risk_level: int = 2):
-    tickers = portfolio_manager.get_dream_team_tickers()
+async def api_run_backtest(period_days: int = 365, risk_level: int = 2):
+    tickers = [stock['ticker'] for stock in portfolio_manager.get_dream_team()]
     if not tickers:
         raise HTTPException(status_code=400, detail="Dream Team jest pusty.")
-    
-    strategy_logic = {
-        'sygnalu': agent_sygnalu,
-        'potwierdzenia': agent_potwierdzenia,
-        'historyczny': agent_historyczny
-    }
-    
-    return run_backtest(tickers, period, risk_level, data_fetcher, strategy_logic)
+    return run_backtest(tickers, period_days, risk_level, data_fetcher)
 
 @app.get("/api/full_analysis/{ticker}")
 async def api_full_analysis(ticker: str):
+    """
+    Przebudowany endpoint do pełnej analizy 360 stopni.
+    Zbiera wszystkie dane, oblicza wskaźniki i zwraca kompletny pakiet analityczny.
+    """
     overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
     daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "full"})
     qqq_daily_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
@@ -128,14 +129,52 @@ async def api_full_analysis(ticker: str):
 
     stock_df = transform_to_dataframe(daily_data_json)
     market_df = transform_to_dataframe(qqq_daily_json)
-    if stock_df is None:
+    if stock_df is None or stock_df.empty:
         raise HTTPException(status_code=500, detail="Błąd przetwarzania danych historycznych.")
 
-    stock_df.ta.rsi(length=14, append=True)
-    stock_df.ta.macd(fast=12, slow=26, signal=9, append=True)
-    stock_df.ta.bbands(length=20, append=True)
-    stock_df.ta.stoch(k=14, d=3, smooth_k=3, append=True)
-    stock_df.ta.adx(length=14, append=True)
+    # --- Obliczanie wskaźników przy użyciu PANDAS ---
+    
+    # 1. RSI
+    delta = stock_df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).ewm(com=13, adjust=False).mean()
+    loss = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
+    rs = gain / loss
+    stock_df['RSI_14'] = 100 - (100 / (1 + rs))
+
+    # 2. MACD
+    exp12 = stock_df['close'].ewm(span=12, adjust=False).mean()
+    exp26 = stock_df['close'].ewm(span=26, adjust=False).mean()
+    stock_df['MACD_12_26_9'] = exp12 - exp26
+    stock_df['MACDs_12_26_9'] = stock_df['MACD_12_26_9'].ewm(span=9, adjust=False).mean()
+    stock_df['MACDh_12_26_9'] = stock_df['MACD_12_26_9'] - stock_df['MACDs_12_26_9']
+
+    # 3. Bollinger Bands
+    sma20 = stock_df['close'].rolling(window=20).mean()
+    std20 = stock_df['close'].rolling(window=20).std()
+    stock_df['BBU_20_2.0'] = sma20 + (std20 * 2)
+    stock_df['BBL_20_2.0'] = sma20 - (std20 * 2)
+
+    # 4. Stochastic Oscillator
+    low14 = stock_df['low'].rolling(window=14).min()
+    high14 = stock_df['high'].rolling(window=14).max()
+    stock_df['STOCHk_14_3_3'] = 100 * ((stock_df['close'] - low14) / (high14 - low14))
+    stock_df['STOCHd_14_3_3'] = stock_df['STOCHk_14_3_3'].rolling(window=3).mean()
+    
+    # 5. ADX
+    plus_dm = stock_df['high'].diff()
+    minus_dm = stock_df['low'].diff()
+    plus_dm[(plus_dm < 0) | (plus_dm <= minus_dm)] = 0
+    minus_dm[(minus_dm < 0) | (minus_dm <= plus_dm)] = 0
+    tr1 = pd.DataFrame(stock_df['high'] - stock_df['low'])
+    tr2 = pd.DataFrame(abs(stock_df['high'] - stock_df['close'].shift(1)))
+    tr3 = pd.DataFrame(abs(stock_df['low'] - stock_df['close'].shift(1)))
+    tr = pd.concat([tr1, tr2, tr3], axis=1, join='inner').max(axis=1)
+    atr = tr.ewm(com=13, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(com=13, adjust=False).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(com=13, adjust=False).mean() / atr)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.ewm(com=13, adjust=False).mean()
+    stock_df['ADX_14'] = adx
 
     risk_analysis = analyze_single_stock_risk(stock_df, market_df, overview_data)
     
@@ -143,7 +182,7 @@ async def api_full_analysis(ticker: str):
 
     return {
         "overview": overview_data,
-        "daily": daily_data_json,
+        "daily_data_for_chart": json.loads(stock_df.reset_index().to_json(orient='records', date_format='iso')),
         "risk": risk_analysis,
         "indicators": {
             "rsi": latest_indicators.get('RSI_14'),
@@ -160,15 +199,8 @@ async def api_full_analysis(ticker: str):
 
 # --- Uruchomienie Serwera ---
 if __name__ == "__main__":
+    # Render używa zmiennej PORT do określenia, na którym porcie ma nasłuchiwać aplikacja.
     port = int(os.environ.get("PORT", 8000))
-    # Poprawka dla Render: jawne ustawienie parametrów SSL
-    # pozwala proxy (Render) na zarządzanie certyfikatami HTTPS
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=True,
-        ssl_keyfile=None,
-        ssl_certfile=None
-    )
-
+    # 'reload=True' jest przydatne w dewelopmence, ale na produkcji Render może zarządzać restartami.
+    # Użycie "main:app" jest standardem dla Gunicorn/Uvicorn.
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
