@@ -114,7 +114,7 @@ async def api_full_analysis(ticker: str) -> Dict[str, Any]:
         risk_analysis = analyze_single_stock_risk(df, market_df, overview_data)
         
         # 5. Przygotowanie finalnej odpowiedzi
-        latest_price_data = list(daily_data_json["Time Series (Daily).items())[0][1]
+        latest_price_data = list(daily_data_json["Time Series (Daily)"].items())[0][1]
         price = float(latest_price_data['4. close'])
         prev_close = float(list(daily_data_json["Time Series (Daily)"].items())[1][1]['4. close'])
         change = price - prev_close
