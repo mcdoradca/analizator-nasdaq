@@ -75,9 +75,10 @@
             <!-- Left Sidebar -->
             <aside class="w-2/5 xl:w-1/3 bg-gray-800/50 p-4 flex flex-col">
                 <div class="flex flex-wrap gap-2 mb-4 border-b border-gray-700 pb-4">
-                    <button id="cockpit-view-toggle" data-view="cockpit" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-tachometer-alt mr-2"></i>Kokpit</button>
-                    <button id="revolution-view-toggle" data-view="revolution" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-rocket mr-2"></i>Rewolucja AI</button>
-                    <button id="backtesting-view-toggle" data-view="backtesting" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-history mr-2"></i>Wehikuł Czasu</button>
+                    <button data-view="portfolio" class="view-toggle flex-grow bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-users mr-2"></i>Portfel</button>
+                    <button data-view="cockpit" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-tachometer-alt mr-2"></i>Kokpit</button>
+                    <button data-view="revolution" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-rocket mr-2"></i>Rewolucja AI</button>
+                    <button data-view="backtesting" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-history mr-2"></i>Wehikuł Czasu</button>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-2 mb-4">
@@ -96,11 +97,39 @@
                 </div>
 
                 <div id="sidebar-content-container" class="flex-1 overflow-y-auto space-y-2">
-                    <div id="dream-team-list-container" class="bg-gray-800/50 rounded-lg">
-                         <div class="p-3">
-                            <h3 class="text-lg font-bold text-green-400"><i class="fas fa-star mr-2"></i>Dream Team</h3>
+                    <!-- Golden League -->
+                    <div class="bg-gray-800/50 rounded-lg">
+                        <div class="accordion-header flex justify-between items-center p-3 cursor-pointer">
+                            <h3 class="text-lg font-bold text-amber-300"><i class="fas fa-trophy mr-2"></i>Złota Liga</h3>
+                            <i class="fas fa-chevron-down accordion-icon"></i>
                         </div>
-                        <div class="p-3 space-y-3">
+                        <div class="collapsible-content p-3 hidden space-y-3">
+                            <div id="golden-league-list" class="space-y-2">
+                                <p class="text-gray-500 text-sm px-2">Funkcjonalność w budowie.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Szybka Liga -->
+                    <div class="bg-gray-800/50 rounded-lg">
+                         <div class="accordion-header flex justify-between items-center p-3 cursor-pointer">
+                            <h3 class="text-lg font-bold text-cyan-300"><i class="fas fa-bolt mr-2"></i>Szybka Liga</h3>
+                            <i class="fas fa-chevron-down accordion-icon"></i>
+                        </div>
+                        <div class="collapsible-content p-3 hidden space-y-3">
+                            <div id="quick-league-list" class="space-y-2">
+                                <p class="text-gray-500 text-sm px-2">Funkcjonalność w budowie.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Dream Team -->
+                    <div class="bg-gray-800/50 rounded-lg">
+                        <div class="accordion-header flex justify-between items-center p-3 cursor-pointer">
+                            <h3 class="text-lg font-bold text-green-400"><i class="fas fa-star mr-2"></i>Dream Team</h3>
+                            <i class="fas fa-chevron-down accordion-icon"></i>
+                        </div>
+                        <div class="collapsible-content p-3 hidden space-y-3">
                             <div id="dream-team-list" class="space-y-2">
                                  <div class="loader scanner-loader mx-auto"></div>
                             </div>
@@ -110,8 +139,8 @@
             </aside>
             
             <section id="content-area" class="flex-1 overflow-y-auto p-6">
-                <!-- Analysis Section -->
-                <div id="analysis-section" class="h-full">
+                <!-- Portfolio/Analysis Section -->
+                <div id="portfolio-section" class="h-full">
                      <div id="analysis-placeholder" class="flex flex-col justify-center items-center h-full text-gray-500">
                          <i class="fas fa-chart-pie fa-4x mb-4"></i>
                         <h2 class="text-2xl font-semibold">Wybierz akcję do analizy</h2>
@@ -161,11 +190,10 @@
     </div>
     
     <script type="module">
-        // --- KLUCZOWA ZMIANA: Stały adres URL backendu ---
         const API_BASE_URL = 'https://analizator-nasdaq.onrender.com';
 
         // --- GLOBAL STATE ---
-        let currentView = 'analysis';
+        let currentView = 'portfolio';
         let currentTicker = null;
         let priceChart = null;
 
@@ -178,7 +206,7 @@
         const backtestButton = document.getElementById('start-backtest-button');
         
         const sections = {
-            analysis: document.getElementById('analysis-section'),
+            portfolio: document.getElementById('portfolio-section'),
             cockpit: document.getElementById('cockpit-section'),
             revolution: document.getElementById('revolution-section'),
             backtesting: document.getElementById('backtesting-section')
@@ -211,7 +239,6 @@
             } catch (e) { container.innerHTML = '<span class="text-red-500">Błąd</span>'; }
         }
 
-        // NAPRAWIONO: Dodano brakującą funkcję
         async function updateMarketBarometer() {
             const container = document.getElementById('market-barometer-status');
             container.innerHTML = '<div class="loader scanner-loader"></div>';
@@ -248,9 +275,9 @@
                 alert('Wpisz ticker do analizy.');
                 return;
             }
-            currentTicker = ticker; // Zapisz ticker w stanie globalnym
+            currentTicker = ticker;
             
-            switchMainView('analysis');
+            switchMainView('portfolio');
             const placeholder = document.getElementById('analysis-placeholder');
             const content = document.getElementById('analysis-content');
             
@@ -263,7 +290,7 @@
             try {
                 const analysisData = await fetchFromAPI(`/api/full_analysis/${ticker}`);
                 renderFullAnalysis(analysisData);
-                backtestButton.disabled = false; // Odblokuj przycisk backtestu
+                backtestButton.disabled = false;
                 backtestButton.innerHTML = `<i class="fas fa-play mr-2"></i>Uruchom Test dla '${ticker}'`;
 
             } catch (e) {
@@ -293,7 +320,6 @@
             }
         }
 
-        // NAPRAWIONO: Dynamiczny backtest dla wybranego tickera
         async function handleBacktestClick() {
             if (!currentTicker) return;
             const resultsContainer = document.getElementById('backtesting-results');
@@ -310,7 +336,6 @@
 
 
         // --- RENDERING ---
-        // NAPRAWIONO: Dostosowano do nowej struktury danych
         function renderDreamTeam(dreamTeamData) {
             const container = document.getElementById('dream-team-list');
             container.innerHTML = '';
@@ -343,7 +368,6 @@
             });
         }
 
-        // NOWA FUNKCJA: Renderowanie wykresu cenowego
         function renderPriceChart(dailyData) {
             const seriesData = Object.entries(dailyData["Time Series (Daily)"]).map(([date, values]) => ({
                 x: new Date(date),
@@ -353,7 +377,7 @@
                     parseFloat(values['3. low']),
                     parseFloat(values['4. close'])
                 ]
-            })).reverse(); // API zwraca dane od najnowszych, wykres potrzebuje od najstarszych
+            })).reverse();
 
             const options = {
                 series: [{ data: seriesData }],
@@ -378,7 +402,6 @@
             priceChart.render();
         }
 
-        // NAPRAWIONO: Całkowicie przebudowana funkcja renderująca
         function renderFullAnalysis(data) {
              const content = document.getElementById('analysis-content');
              const { overview, risk, aiSummary, daily } = data;
@@ -424,16 +447,20 @@
                     </div>
                 </div>
              `;
-             // Renderowanie wykresu po stworzeniu kontenera
              renderPriceChart(daily);
         }
 
         function switchMainView(view) {
              currentView = view;
              document.querySelectorAll('.view-toggle').forEach(toggle => {
-                toggle.classList.toggle('bg-gray-600', toggle.dataset.view === view);
-                toggle.classList.toggle('bg-gray-700', toggle.dataset.view !== view);
+                const buttonView = toggle.dataset.view;
+                const isPortfolio = (view === 'portfolio' && buttonView === 'portfolio');
+                const isOther = (view !== 'portfolio' && buttonView === view);
+                
+                toggle.classList.toggle('bg-gray-600', isPortfolio || isOther);
+                toggle.classList.toggle('bg-gray-700', !(isPortfolio || isOther));
              });
+
              Object.entries(sections).forEach(([name, el]) => {
                 el.classList.toggle('hidden', name !== view);
              });
@@ -442,17 +469,29 @@
                 updateCerberPortfolioAnalysis();
              }
         }
+        
+        function setupAccordionListeners() {
+            document.querySelectorAll('.accordion-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const content = header.nextElementSibling;
+                    const icon = header.querySelector('.accordion-icon');
+                    content.classList.toggle('hidden');
+                    icon.classList.toggle('rotate-180');
+                });
+            });
+        }
 
         function initializeApp() {
             authSection.classList.add('hidden');
             appContainer.classList.remove('hidden');
             
-            switchMainView('analysis');
+            switchMainView('portfolio');
 
             document.querySelectorAll('.view-toggle').forEach(toggle => {
                 toggle.addEventListener('click', () => switchMainView(toggle.dataset.view));
             });
 
+            setupAccordionListeners();
             updateMarketBarometer();
             updateMacroClimate();
             updateDreamTeamList();
