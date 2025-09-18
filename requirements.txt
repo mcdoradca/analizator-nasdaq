@@ -1,7 +1,8 @@
-astapi
+fastapi
 uvicorn
 gunicorn
 requests
 pandas
 numpy
 pandas-ta
+
