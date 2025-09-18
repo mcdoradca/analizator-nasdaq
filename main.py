@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import json # Kluczowy brakujący import
 
-# --- Importy Agentów i Modułów ---
+# --- Poprawione importy agentów ---
 from data_fetcher import DataFetcher, transform_to_dataframe
 from portfolio_manager import PortfolioManager
 from selection_agent import run_market_scan
@@ -18,7 +18,7 @@ from zlota_liga_agent import run_zlota_liga_analysis
 from szybka_liga_agent import run_quick_league_scan
 from backtesting_agent import run_backtest
 from macro_agent import get_macro_climate_analysis, get_market_barometer
-from cockpit_agent import run_cockpit_analysis
+from cockpit_agent import run_cockpit_analysis # Poprawiona nazwa funkcji
 from risk_agent import analyze_single_stock_risk
 
 # --- Struktury Danych (Modele Pydantic) ---
@@ -34,7 +34,7 @@ class ClosePositionPayload(BaseModel):
     id: str
     closePrice: float
 
-# --- Inicjalizacja Aplikacji i Kluczowych Komponentów ---
+# --- Inicjalizacja Aplikacji ---
 app = FastAPI(title="Analizator Nasdaq API")
 
 app.add_middleware(
@@ -69,10 +69,8 @@ async def api_get_market_barometer():
 @app.post("/api/run_revolution")
 async def api_run_revolution():
     scan_results = run_market_scan(data_fetcher)
-    candidates = scan_results.get('candidates', [])
-    # Tworzymy listę słowników oczekiwaną przez portfolio_manager
-    dream_team_payload = [{'ticker': ticker, 'status': 'Nowy'} for ticker in candidates]
-    portfolio_manager.update_dream_team(dream_team_payload)
+    # Poprawka: Upewniamy się, że przekazujemy dane w formacie oczekiwanym przez menedżera
+    portfolio_manager.update_dream_team(scan_results.get('candidates', []))
     return scan_results
 
 @app.get("/api/scan_quick_league")
@@ -135,53 +133,45 @@ async def api_full_analysis(ticker: str):
     if stock_df is None or stock_df.empty:
         raise HTTPException(status_code=500, detail="Błąd przetwarzania danych historycznych.")
 
-    # Obliczenia wskaźników pozostają bez zmian
+    # --- POPRAWKA: Obliczanie wskaźników przy użyciu PANDAS ---
+    
+    # RSI
     delta = stock_df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(com=13, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
     rs = gain / loss
     stock_df['RSI_14'] = 100 - (100 / (1 + rs))
+
+    # MACD
     exp12 = stock_df['close'].ewm(span=12, adjust=False).mean()
     exp26 = stock_df['close'].ewm(span=26, adjust=False).mean()
     stock_df['MACD_12_26_9'] = exp12 - exp26
     stock_df['MACDs_12_26_9'] = stock_df['MACD_12_26_9'].ewm(span=9, adjust=False).mean()
     stock_df['MACDh_12_26_9'] = stock_df['MACD_12_26_9'] - stock_df['MACDs_12_26_9']
+
+    # Bollinger Bands
     sma20 = stock_df['close'].rolling(window=20).mean()
     std20 = stock_df['close'].rolling(window=20).std()
     stock_df['BBU_20_2.0'] = sma20 + (std20 * 2)
     stock_df['BBL_20_2.0'] = sma20 - (std20 * 2)
+
+    # Stochastic Oscillator
     low14 = stock_df['low'].rolling(window=14).min()
     high14 = stock_df['high'].rolling(window=14).max()
     stock_df['STOCHk_14_3_3'] = 100 * ((stock_df['close'] - low14) / (high14 - low14))
     stock_df['STOCHd_14_3_3'] = stock_df['STOCHk_14_3_3'].rolling(window=3).mean()
-    plus_dm = stock_df['high'].diff()
-    minus_dm = stock_df['low'].diff()
-    plus_dm[(plus_dm < 0) | (plus_dm <= minus_dm)] = 0
-    minus_dm[(minus_dm < 0) | (minus_dm <= plus_dm)] = 0
-    tr1 = pd.DataFrame(stock_df['high'] - stock_df['low'])
-    tr2 = pd.DataFrame(abs(stock_df['high'] - stock_df['close'].shift(1)))
-    tr3 = pd.DataFrame(abs(stock_df['low'] - stock_df['close'].shift(1)))
-    tr = pd.concat([tr1, tr2, tr3], axis=1, join='inner').max(axis=1)
-    atr = tr.ewm(com=13, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(com=13, adjust=False).mean() / atr)
-    minus_di = 100 * (minus_dm.ewm(com=13, adjust=False).mean() / atr)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(com=13, adjust=False).mean()
-    stock_df['ADX_14'] = adx
-
+    
     risk_analysis = analyze_single_stock_risk(stock_df, market_df, overview_data)
-    
-    latest_indicators = stock_df.iloc[-1].to_dict()
-    
-    # Poprawka: konwertujemy DataFrame do listy słowników, co jest naturalne dla JSON
-    daily_data_for_chart = stock_df.reset_index().to_dict(orient='records')
-    # Konwersja dat na stringi ISO
-    for record in daily_data_for_chart:
-        record['index'] = record['index'].isoformat()
+    latest_indicators = stock_df.iloc[-1].fillna(0).to_dict()
+
+    # Poprawka formatowania danych dla frontendu
+    chart_data = stock_df.reset_index()[['index', 'open', 'high', 'low', 'close']].to_dict(orient='records')
+    for row in chart_data:
+        row['index'] = row['index'].strftime('%Y-%m-%d')
 
     return {
         "overview": overview_data,
-        "daily_data_for_chart": daily_data_for_chart,
+        "daily_data_for_chart": chart_data,
         "risk": risk_analysis,
         "indicators": {
             "rsi": latest_indicators.get('RSI_14'),
@@ -192,7 +182,6 @@ async def api_full_analysis(ticker: str):
             "bbands_lower": latest_indicators.get('BBL_20_2.0'),
             "stoch_k": latest_indicators.get('STOCHk_14_3_3'),
             "stoch_d": latest_indicators.get('STOCHd_14_3_3'),
-            "adx": latest_indicators.get('ADX_14')
         }
     }
 
