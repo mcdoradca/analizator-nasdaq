@@ -3,72 +3,471 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analizator Nasdaq</title>
+    <title>Guru Analizator Akcji Nasdaq</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
-        /* Style pozostają bez zmian */
+        /* Custom scrollbar for webkit browsers */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #1f2937; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-        .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        /* Styles for the loader */
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        .scanner-loader {
+             width: 16px; height: 16px;
+             border: 2px solid #f3f3f3;
+             border-top: 2px solid #3498db;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Style dla wykresów ApexCharts w trybie ciemnym */
+        .apexcharts-tooltip.apexcharts-theme-dark {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+        .apexcharts-candlestick-area {
+            stroke: #4299e1;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-200 font-sans antialiased">
 
-    <!-- Cała struktura HTML pozostaje bez zmian -->
-    <div id="app-container" class="h-screen flex flex-col">
+    <!-- Auth Section -->
+    <div id="auth-section" class="fixed inset-0 bg-gray-900 flex justify-center items-center z-50">
+        <div class="bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700 text-center">
+            <h2 class="text-3xl font-bold mb-6 text-white">Guru Analizator Akcji Nasdaq</h2>
+            <p class="text-gray-400 mb-6">Aplikacja jest gotowa. Kliknij, aby rozpocząć analizę rynku.</p>
+            <button id="enter-app-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-300">Wejdź do Aplikacji</button>
+        </div>
+    </div>
+    
+    <!-- Main Application Container -->
+    <div id="app-container" class="hidden h-screen flex flex-col">
         <!-- Header -->
         <header class="bg-gray-800/80 backdrop-blur-sm border-b border-gray-700 p-4 flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-white"><i class="fas fa-chart-line mr-2 text-blue-400"></i>Analizator Nasdaq</h1>
-            <div class="flex items-center space-x-4">
-                 <input type="text" id="search-ticker-input" class="bg-gray-700 rounded-full w-64 px-4 py-2 text-white" placeholder="Wpisz ticker (np. AAPL)">
-                <button id="analyze-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-full">Analizuj</button>
+             <div>
+                <h1 class="text-2xl font-bold text-white"><i class="fas fa-chart-line mr-2 text-blue-400"></i>Guru Analizator Akcji Nasdaq</h1>
+             </div>
+             <div class="flex items-center space-x-4">
+                 <div class="relative">
+                    <input type="text" id="search-ticker-input" class="bg-gray-700 border border-gray-600 rounded-full w-64 px-4 py-2 pl-10 text-white" placeholder="Wpisz ticker (np. AAPL)">
+                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                </div>
+                <button id="analyze-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-full">
+                    <i class="fas fa-search-dollar mr-2"></i>Analizuj
+                </button>
             </div>
         </header>
+        
         <!-- Main Content -->
         <main class="flex-1 flex overflow-hidden">
-           <!-- Reszta interfejsu bez zmian -->
+            <!-- Left Sidebar -->
+            <aside class="w-2/5 xl:w-1/3 bg-gray-800/50 p-4 flex flex-col">
+                <div class="flex flex-wrap gap-2 mb-4 border-b border-gray-700 pb-4">
+                    <button id="cockpit-view-toggle" data-view="cockpit" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-tachometer-alt mr-2"></i>Kokpit</button>
+                    <button id="revolution-view-toggle" data-view="revolution" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-rocket mr-2"></i>Rewolucja AI</button>
+                    <button id="backtesting-view-toggle" data-view="backtesting" class="view-toggle flex-grow bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-3 rounded-lg flex items-center justify-center text-xs"><i class="fas fa-history mr-2"></i>Wehikuł Czasu</button>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2 mb-4">
+                    <div class="p-2 bg-gray-800/50 rounded-lg text-center">
+                        <h4 class="text-xs font-bold text-purple-300 flex items-center justify-center mb-1"><i class="fas fa-tachometer-alt-fast mr-1"></i>Barometr Rynku</h4>
+                        <div id="market-barometer-status" class="flex items-center justify-center text-sm font-semibold">
+                           <div class="loader scanner-loader"></div>
+                        </div>
+                    </div>
+                    <div class="p-2 bg-gray-800/50 rounded-lg text-center">
+                        <h4 class="text-xs font-bold text-teal-300 flex items-center justify-center mb-1"><i class="fas fa-wind mr-1"></i>Klimat Makro</h4>
+                        <div id="macro-climate-status" class="flex items-center justify-center text-sm font-semibold">
+                            <div class="loader scanner-loader"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="sidebar-content-container" class="flex-1 overflow-y-auto space-y-2">
+                    <div id="dream-team-list-container" class="bg-gray-800/50 rounded-lg">
+                         <div class="p-3">
+                            <h3 class="text-lg font-bold text-green-400"><i class="fas fa-star mr-2"></i>Dream Team</h3>
+                        </div>
+                        <div class="p-3 space-y-3">
+                            <div id="dream-team-list" class="space-y-2">
+                                 <div class="loader scanner-loader mx-auto"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+            
+            <section id="content-area" class="flex-1 overflow-y-auto p-6">
+                <!-- Analysis Section -->
+                <div id="analysis-section" class="h-full">
+                     <div id="analysis-placeholder" class="flex flex-col justify-center items-center h-full text-gray-500">
+                         <i class="fas fa-chart-pie fa-4x mb-4"></i>
+                        <h2 class="text-2xl font-semibold">Wybierz akcję do analizy</h2>
+                        <p>Wpisz ticker w polu wyszukiwania i kliknij "Analizuj".</p>
+                    </div>
+                    <div id="analysis-content" class="hidden"></div>
+                </div>
+                <!-- Cockpit Section -->
+                <div id="cockpit-section" class="h-full hidden">
+                    <h2 class="text-2xl font-bold text-white mb-6">Kokpit Transakcyjny</h2>
+                    <div id="cerber-portfolio-panel" class="mb-6 p-5 rounded-xl border border-red-500/50 bg-red-900/20">
+                        <h3 class="text-xl font-bold mb-3 flex items-center text-red-300"><i class="fas fa-shield-alt mr-3"></i>Analiza Ryzyka Portfela (Agent Cerber)</h3>
+                        <div id="cerber-portfolio-content" class="space-y-3 text-sm">
+                           <div class="loader scanner-loader"></div>
+                        </div>
+                    </div>
+                     <p class="text-gray-500">Pełna funkcjonalność kokpitu w budowie.</p>
+                </div>
+                <!-- Revolution Section -->
+                <div id="revolution-section" class="h-full hidden">
+                    <div class="mb-6 p-5 rounded-xl border border-red-500/50 bg-red-900/20">
+                        <h2 class="text-2xl font-bold text-white mb-3">Rewolucja AI 2.0: Automatyczny Dobór Drużyny</h2>
+                        <p class="text-gray-400 text-sm">Uruchom pełny skan rynku, aby agenci selekcyjni wybrali najlepszych kandydatów do Twojego Dream Teamu.</p>
+                    </div>
+                    <button id="start-revolution-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg">
+                        <i class="fas fa-play mr-2"></i>Uruchom Rewolucję
+                    </button>
+                    <div id="revolution-results" class="mt-6 bg-gray-800 rounded-xl p-4 text-sm font-mono h-96 overflow-y-auto">
+                        <p class="text-gray-500">Agent AI oczekuje na aktywację...</p>
+                    </div>
+                </div>
+                <!-- Backtesting Section -->
+                <div id="backtesting-section" class="h-full hidden">
+                    <div class="mb-6 p-5 rounded-xl border border-indigo-500/50 bg-indigo-900/20">
+                        <h2 class="text-2xl font-bold text-white mb-3">Wehikuł Czasu: Silnik Backtestingu</h2>
+                        <p class="text-gray-400 text-sm">Przetestuj skuteczność strategii na danych historycznych dla wybranego tickera.</p>
+                    </div>
+                    <button id="start-backtest-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg disabled:bg-gray-500" disabled>
+                        <i class="fas fa-play mr-2"></i>Uruchom Test
+                    </button>
+                    <div id="backtesting-results" class="mt-6 bg-gray-800 rounded-xl p-4 text-sm">
+                         <p class="text-gray-500">Wybierz spółkę do analizy, aby aktywować Wehikuł Czasu.</p>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
     
     <script type="module">
-        // --- OSTATECZNA I POPRAWNA KONFIGURACJA ---
-        // Na stałe wpisany, prawidłowy adres URL usługi backendowej,
-        // potwierdzony zrzutem ekranu.
-        const API_BASE_URL = 'https://analizator-nasdaq.onrender.com';
+        // --- NAPRAWIONO: Dynamiczny adres URL API ---
+        const API_BASE_URL = ''; // Pusty string oznacza ten sam host, co strona. Działa lokalnie i na Render.
 
-        // Reszta kodu JavaScript pozostaje bez zmian
+        // --- GLOBAL STATE ---
+        let currentView = 'analysis';
+        let currentTicker = null;
+        let priceChart = null;
 
+        // --- DOM ELEMENTS ---
+        const authSection = document.getElementById('auth-section');
+        const appContainer = document.getElementById('app-container');
+        const enterAppBtn = document.getElementById('enter-app-btn');
+        const analyzeButton = document.getElementById('analyze-button');
+        const searchInput = document.getElementById('search-ticker-input');
+        const backtestButton = document.getElementById('start-backtest-button');
+        
+        const sections = {
+            analysis: document.getElementById('analysis-section'),
+            cockpit: document.getElementById('cockpit-section'),
+            revolution: document.getElementById('revolution-section'),
+            backtesting: document.getElementById('backtesting-section')
+        };
+        
+        // --- API COMMUNICATION ---
         async function fetchFromAPI(endpoint, options = {}) {
-            const finalEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-            const url = `${API_BASE_URL}${finalEndpoint}`;
+            const url = `${API_BASE_URL}${endpoint}`;
             try {
                 const response = await fetch(url, options);
                 if (!response.ok) {
-                    let errorText = `Błąd serwera: ${response.status} ${response.statusText}`;
-                    try {
-                        const err = await response.json();
-                        errorText = err.detail || JSON.stringify(err);
-                    } catch (e) {
-                        // Ignorujemy błąd parsowania
-                    }
-                    throw new Error(errorText);
+                    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+                    throw new Error(`Błąd API (${response.status}): ${errorData.detail}`);
                 }
-                const text = await response.text();
-                return text ? JSON.parse(text) : {};
+                return await response.json();
             } catch (error) {
-                console.error(`Błąd API (${url}):`, error);
-                alert(`Błąd połączenia z API: ${error.message}`);
+                console.error(`Błąd podczas komunikacji z API (${endpoint}):`, error);
+                alert(`Nie można połączyć się z serwerem lub wystąpił błąd.\n\nBłąd: ${error.message}`);
                 throw error;
             }
         }
+
+        // --- DATA FETCHING & UPDATING ---
+        async function updateMacroClimate() {
+            const container = document.getElementById('macro-climate-status');
+            container.innerHTML = '<div class="loader scanner-loader"></div>';
+            try {
+                const data = await fetchFromAPI('/api/macro_climate');
+                container.innerHTML = `<i class="fas ${data.icon} ${data.color} mr-2"></i><span class="${data.color}">${data.status}</span>`;
+            } catch (e) { container.innerHTML = '<span class="text-red-500">Błąd</span>'; }
+        }
+
+        // NAPRAWIONO: Dodano brakującą funkcję
+        async function updateMarketBarometer() {
+            const container = document.getElementById('market-barometer-status');
+            container.innerHTML = '<div class="loader scanner-loader"></div>';
+            try {
+                const data = await fetchFromAPI('/api/market_barometer');
+                container.innerHTML = `<i class="fas ${data.icon} ${data.color} mr-2"></i><span class="${data.color}">${data.status}</span>`;
+            } catch (e) { container.innerHTML = '<span class="text-red-500">Błąd</span>'; }
+        }
+
+        async function updateCerberPortfolioAnalysis() {
+            const container = document.getElementById('cerber-portfolio-content');
+            container.innerHTML = '<div class="loader scanner-loader"></div>';
+             try {
+                const data = await fetchFromAPI('/api/portfolio_risk');
+                container.innerHTML = `<p class="text-gray-300">Poziom korelacji portfela: <strong class="${data.color}">${data.level} (${data.correlation.toFixed(2)})</strong></p><p class="text-xs text-gray-500 mt-2">${data.summary}</p>`;
+            } catch (e) { container.innerHTML = '<p class="text-red-500">Błąd analizy. Dream Team może być pusty.</p>'; }
+        }
+
+        async function updateDreamTeamList() {
+            const container = document.getElementById('dream-team-list');
+            container.innerHTML = '<div class="loader scanner-loader mx-auto"></div>';
+            try {
+                const dreamTeamData = await fetchFromAPI('/api/portfolio/dream_team');
+                renderDreamTeam(dreamTeamData);
+            } catch (e) {
+                container.innerHTML = `<p class="text-red-500 text-sm px-2">Błąd ładowania portfela.</p>`;
+            }
+        }
+
+        // --- EVENT HANDLERS ---
+        async function handleAnalyzeClick() {
+            const ticker = searchInput.value.trim().toUpperCase();
+            if (!ticker) {
+                alert('Wpisz ticker do analizy.');
+                return;
+            }
+            currentTicker = ticker; // Zapisz ticker w stanie globalnym
+            
+            switchMainView('analysis');
+            const placeholder = document.getElementById('analysis-placeholder');
+            const content = document.getElementById('analysis-content');
+            
+            placeholder.classList.add('hidden');
+            content.classList.remove('hidden');
+            content.innerHTML = '<div class="loader mx-auto mt-16"></div>';
+            backtestButton.disabled = true;
+            backtestButton.innerHTML = `<i class="fas fa-play mr-2"></i>Uruchom Test`;
+
+            try {
+                const analysisData = await fetchFromAPI(`/api/full_analysis/${ticker}`);
+                renderFullAnalysis(analysisData);
+                backtestButton.disabled = false; // Odblokuj przycisk backtestu
+                backtestButton.innerHTML = `<i class="fas fa-play mr-2"></i>Uruchom Test dla '${ticker}'`;
+
+            } catch (e) {
+                content.innerHTML = `<div class="text-center mt-16"><p class="text-red-500">Nie udało się pobrać analizy dla ${ticker}.</p><p class="text-sm text-gray-500">${e.message}</p></div>`;
+                placeholder.classList.remove('hidden');
+                content.classList.add('hidden');
+                currentTicker = null;
+            }
+        }
         
-        // ... cała reszta funkcji JavaScript (przewinięta dla zwięzłości)
-        // ... (wszystkie funkcje renderowania, event listenery, etc.)
+        async function handleRevolutionClick() {
+            const button = document.getElementById('start-revolution-button');
+            const resultsContainer = document.getElementById('revolution-results');
+            button.disabled = true;
+            button.innerHTML = '<div class="loader scanner-loader mx-auto"></div>';
+            resultsContainer.innerHTML = '<p class="text-yellow-400">Agent AI rozpoczyna skanowanie rynku... To może potrwać kilka minut.</p>';
+            
+            try {
+                const result = await fetchFromAPI('/api/run_revolution', { method: 'POST' });
+                resultsContainer.innerHTML = `<p class="text-green-400">Rewolucja zakończona!</p><p>Log operacji:</p><div class="text-xs">${result.log.join('<br>')}</div>`;
+                await updateDreamTeamList();
+            } catch (e) {
+                resultsContainer.innerHTML = `<p class="text-red-500">Błąd podczas Rewolucji AI: ${e.message}</p>`;
+            } finally {
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-play mr-2"></i>Uruchom Rewolucję';
+            }
+        }
+
+        // NAPRAWIONO: Dynamiczny backtest dla wybranego tickera
+        async function handleBacktestClick() {
+            if (!currentTicker) return;
+            const resultsContainer = document.getElementById('backtesting-results');
+            resultsContainer.innerHTML = `<p>Silnik "Wehikuł Czasu" rozpoczyna symulację dla ${currentTicker}...</p><div class="loader scanner-loader mt-2"></div>`;
+            try {
+                const result = await fetchFromAPI(`/api/run_backtest/${currentTicker}`);
+                resultsContainer.innerHTML = `<p class="text-green-400">Symulacja dla ${currentTicker} zakończona!</p>
+                <p>Całkowity P/L: <span class="${result.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${result.total_pnl.toFixed(2)}$</span></p>
+                <p>Liczba transakcji: ${result.trade_count}</p>`;
+            } catch (e) {
+                 resultsContainer.innerHTML = `<p class="text-red-500">Błąd podczas symulacji: ${e.message}</p>`;
+            }
+        }
+
+
+        // --- RENDERING ---
+        // NAPRAWIONO: Dostosowano do nowej struktury danych
+        function renderDreamTeam(dreamTeamData) {
+            const container = document.getElementById('dream-team-list');
+            container.innerHTML = '';
+            if (!dreamTeamData || dreamTeamData.length === 0) {
+                container.innerHTML = `<p class="text-gray-500 text-sm px-2">Dream Team jest pusty. Uruchom "Rewolucję AI".</p>`;
+                return;
+            }
+            dreamTeamData.forEach(stock => {
+                const div = document.createElement('div');
+                div.className = 'bg-gray-700/50 p-3 rounded-lg flex items-center justify-between text-sm cursor-pointer hover:bg-gray-700';
+                div.onclick = () => {
+                    searchInput.value = stock.ticker;
+                    handleAnalyzeClick();
+                };
+                const price = stock.currentPrice ? `$${stock.currentPrice.toFixed(2)}` : '--';
+                const change = stock.changePercent !== null ? stock.changePercent : null;
+                const changeColor = change === null ? 'text-gray-400' : (change >= 0 ? 'text-green-400' : 'text-red-400');
+                const changeText = change === null ? '--' : `${change.toFixed(2)}%`;
+
+                div.innerHTML = `
+                    <div class="flex-1 min-w-0">
+                        <p class="font-bold truncate">${stock.ticker}</p>
+                        <p class="text-xs truncate ${stock.status === 'Gwiazda Zespołu' ? 'text-yellow-300' : 'text-gray-400'}">${stock.status}</p>
+                    </div>
+                    <div class="text-right ml-2">
+                        <p class="font-semibold">${price}</p>
+                        <p class="text-xs ${changeColor}">${changeText}</p>
+                    </div>`;
+                container.appendChild(div);
+            });
+        }
+
+        // NOWA FUNKCJA: Renderowanie wykresu cenowego
+        function renderPriceChart(dailyData) {
+            const seriesData = Object.entries(dailyData["Time Series (Daily)"]).map(([date, values]) => ({
+                x: new Date(date),
+                y: [
+                    parseFloat(values['1. open']),
+                    parseFloat(values['2. high']),
+                    parseFloat(values['3. low']),
+                    parseFloat(values['4. close'])
+                ]
+            })).reverse(); // API zwraca dane od najnowszych, wykres potrzebuje od najstarszych
+
+            const options = {
+                series: [{ data: seriesData }],
+                chart: { type: 'candlestick', height: 450, background: 'transparent' },
+                theme: { mode: 'dark' },
+                title: { text: `Historia cen`, align: 'left', style: { color: '#e2e8f0' } },
+                xaxis: { type: 'datetime', labels: { style: { colors: '#a0aec0' } } },
+                yaxis: {
+                    tooltip: { enabled: true },
+                    labels: {
+                        style: { colors: '#a0aec0' },
+                        formatter: (value) => `$${value.toFixed(2)}`
+                    }
+                },
+                tooltip: { theme: 'dark' }
+            };
+
+            if (priceChart) {
+                priceChart.destroy();
+            }
+            priceChart = new ApexCharts(document.querySelector("#price-chart-container"), options);
+            priceChart.render();
+        }
+
+        // NAPRAWIONO: Całkowicie przebudowana funkcja renderująca
+        function renderFullAnalysis(data) {
+             const content = document.getElementById('analysis-content');
+             const { overview, risk, aiSummary, daily } = data;
+             
+             const changeColor = overview.change >= 0 ? 'text-green-400' : 'text-red-400';
+
+             content.innerHTML = `
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h2 class="text-4xl font-bold text-white">${overview.name} (${overview.symbol})</h2>
+                        <p class="text-gray-400">${overview.sector}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-4xl font-bold ${changeColor}">$${overview.price.toFixed(2)}</p>
+                        <p class="text-lg ${changeColor}">${overview.change.toFixed(2)} (${overview.changePercent.toFixed(2)}%)</p>
+                    </div>
+                </div>
+                
+                <div id="price-chart-container" class="mb-6"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="p-5 rounded-xl border border-blue-400/50 bg-blue-900/20">
+                        <h3 class="text-xl font-bold mb-3 flex items-center text-blue-300"><i class="fas fa-robot mr-3"></i>Centrum Decyzyjne AI</h3>
+                        <p class="text-2xl font-bold">${aiSummary.recommendation}</p>
+                        <p class="text-gray-300 mt-1 text-sm">${aiSummary.justification}</p>
+                    </div>
+                    <div class="p-5 rounded-xl border border-red-500/50 bg-red-900/20">
+                        <h3 class="text-xl font-bold mb-3 flex items-center text-red-300"><i class="fas fa-shield-alt mr-3"></i>Analiza Ryzyka (Cerber)</h3>
+                        <div class="flex justify-around text-center">
+                            <div>
+                                <p class="text-xs text-gray-400">Beta</p>
+                                <p class="text-2xl font-bold">${risk.beta}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-gray-400">Korelacja z QQQ</p>
+                                <p class="text-2xl font-bold">${risk.correlation}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-gray-400">Poziom Ryzyka</p>
+                                <p class="text-xl font-bold ${risk.riskColor}">${risk.riskLevel}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+             `;
+             // Renderowanie wykresu po stworzeniu kontenera
+             renderPriceChart(daily);
+        }
+
+        function switchMainView(view) {
+             currentView = view;
+             document.querySelectorAll('.view-toggle').forEach(toggle => {
+                toggle.classList.toggle('bg-gray-600', toggle.dataset.view === view);
+                toggle.classList.toggle('bg-gray-700', toggle.dataset.view !== view);
+             });
+             Object.entries(sections).forEach(([name, el]) => {
+                el.classList.toggle('hidden', name !== view);
+             });
+
+             if (view === 'cockpit') {
+                updateCerberPortfolioAnalysis();
+             }
+        }
+
+        function initializeApp() {
+            authSection.classList.add('hidden');
+            appContainer.classList.remove('hidden');
+            
+            switchMainView('analysis');
+
+            document.querySelectorAll('.view-toggle').forEach(toggle => {
+                toggle.addEventListener('click', () => switchMainView(toggle.dataset.view));
+            });
+
+            updateMarketBarometer();
+            updateMacroClimate();
+            updateDreamTeamList();
+
+            analyzeButton.addEventListener('click', handleAnalyzeClick);
+            searchInput.addEventListener('keyup', (event) => {
+                if (event.key === 'Enter') handleAnalyzeClick();
+            });
+
+            document.getElementById('start-revolution-button').addEventListener('click', handleRevolutionClick);
+            backtestButton.addEventListener('click', handleBacktestClick);
+        }
+
+        // --- APP START ---
+        enterAppBtn.addEventListener('click', initializeApp);
     </script>
 </body>
 </html>
-
