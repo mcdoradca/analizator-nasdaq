@@ -155,13 +155,10 @@ async def api_run_backtest(ticker: str) -> Dict[str, Any]:
         "trade_count": len(results),
         "trades": results
     }
-@app.get("/api/test")
-async def test_endpoint():
-    return {"message": "Serwer działa!", "status": "ok"}
-
+@app.get("/api/test_post")
 @app.post("/api/test_post")
 async def test_post_endpoint():
-    return {"message": "POST działa!", "status": "ok"}
+    return {"message": "Działa zarówno GET jak i POST!", "status": "ok"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
