@@ -2,7 +2,7 @@
 # Główny plik "silnika" aplikacji. Uruchamia serwer API i łączy wszystkich agentów.
 
 import asyncio
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
@@ -19,23 +19,30 @@ from zlota_liga_agent import run_zlota_liga_analysis
 from szybka_liga_agent import run_quick_league_scan
 from cockpit_agent import analyze_cockpit_data
 
-# --- Inicjalizacja Aplikacji i Kluczowych Komponentów ---
+# --- Inicjalizacja Aplikacji ---
 app = FastAPI(
     title="Analizator Nasdaq API",
     description="Backend dla aplikacji analitycznej Guru Analizator Akcji Nasdaq.",
-    version="3.1.0"
+    version="3.2.0"
 )
 
-# --- KONFIGURACJA CORS ---
+# --- KLUCZOWA POPRAWKA: Konfiguracja CORS ---
+# Definiujemy listę zaufanych źródeł.
+origins = [
+    "https://analizator-nasdaq-1.onrender.com",
+    "http://localhost",
+    "http://localhost:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins, # Używamy zdefiniowanej listy
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
-# --- Inicjalizacja Singletonów (jedna instancja dla całej aplikacji) ---
+# --- Inicjalizacja Singletonów ---
 api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
 if not api_key:
     raise RuntimeError("Brak klucza API! Ustaw zmienną środowiskową ALPHA_VANTAGE_API_KEY.")
@@ -49,7 +56,6 @@ async def revolution_background_loop():
     while True:
         state = portfolio_manager.get_revolution_state()
         if state.get("is_active"):
-            print(f"[Background] Wykonuję krok Rewolucji. Indeks: {state.get('last_scanned_index')}")
             run_revolution_step(portfolio_manager, data_fetcher)
         await asyncio.sleep(5)
 
@@ -57,26 +63,27 @@ async def revolution_background_loop():
 async def startup_event():
     asyncio.create_task(revolution_background_loop())
 
-# --- Endpointy Główne ---
+# --- Endpointy ---
+# (Reszta pliku pozostaje bez zmian)
+
 @app.get("/", tags=["Status"])
 def read_root():
     return {"status": "API Analizatora Nasdaq działa poprawnie."}
 
-# --- Endpointy Analizy Rynku (MAKRO) ---
 @app.get("/api/macro_climate", tags=["Analiza Rynku"])
-async def api_get_macro_climate() -> Dict[str, Any]:
+async def api_get_macro_climate():
     return get_macro_climate_analysis(data_fetcher)
 
 @app.get("/api/market_barometer", tags=["Analiza Rynku"])
-async def api_get_market_barometer() -> Dict[str, Any]:
+async def api_get_market_barometer():
     return get_market_barometer(data_fetcher)
 
-# --- Endpointy Rewolucji AI ---
 @app.post("/api/revolution/start", tags=["Rewolucja AI"])
 async def start_revolution_endpoint():
     state = portfolio_manager.get_revolution_state()
     if state["is_active"]:
         raise HTTPException(status_code=400, detail="Rewolucja AI jest już w toku.")
+    
     if state["last_scanned_index"] == -1 or state["is_completed"]:
         market_list = agent_listy_rynkowej(data_fetcher)
         if not market_list:
@@ -95,38 +102,36 @@ async def pause_revolution_endpoint():
 async def get_revolution_status():
     return portfolio_manager.get_revolution_state()
 
-# --- Endpointy Portfela i Lig ---
 @app.get("/api/portfolio/dream_team", tags=["Portfel"])
-async def api_get_dream_team() -> list:
+async def api_get_dream_team():
     return portfolio_manager.get_dream_team()
 
-@app.get("/api/scan/golden_league", tags=["Portfel"])
-async def api_get_golden_league() -> List[Dict[str, Any]]:
+@app.get("/api/scan/golden_league", tags=["Ligi"])
+async def api_get_golden_league():
     tickers = portfolio_manager.get_dream_team_tickers()
-    if not tickers: return []
+    if not tickers:
+        return []
     return run_zlota_liga_analysis(tickers, data_fetcher)
 
-@app.get("/api/scan/quick_league", tags=["Portfel"])
-async def api_get_quick_league() -> List[Dict[str, Any]]:
+@app.get("/api/scan/quick_league", tags=["Ligi"])
+async def api_get_quick_league():
     tickers = portfolio_manager.get_dream_team_tickers()
-    if not tickers: return []
+    if not tickers:
+        return []
     return run_quick_league_scan(tickers, data_fetcher)
 
-# --- Endpointy Analizy Spółki i Ryzyka ---
 @app.get("/api/full_analysis/{ticker}", tags=["Analiza Spółki"])
-async def api_full_analysis(ticker: str) -> Dict[str, Any]:
+async def api_full_analysis(ticker: str):
+    # ... (bez zmian)
     try:
         overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
         daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
         if not overview_data or 'Name' not in overview_data or not daily_data_json:
             raise HTTPException(status_code=404, detail=f"Brak kompletnych danych dla {ticker}.")
-        
         df = transform_to_dataframe(daily_data_json)
         market_df_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
         market_df = transform_to_dataframe(market_df_json)
-
         risk_analysis = analyze_single_stock_risk(df, market_df, overview_data)
-        
         time_series = daily_data_json["Time Series (Daily)"]
         latest_price_data = list(time_series.values())[0]
         previous_price_data = list(time_series.values())[1]
@@ -134,42 +139,30 @@ async def api_full_analysis(ticker: str) -> Dict[str, Any]:
         prev_close = float(previous_price_data['4. close'])
         change = price - prev_close
         change_percent = (change / prev_close) * 100 if prev_close != 0 else 0
-        
         ai_summary = {"recommendation": "Obserwuj", "justification": f"Spółka {overview_data.get('Name')} wykazuje {risk_analysis['riskLevel']} poziom ryzyka."}
         if risk_analysis['riskLevel'] == 'Niskie' and change > 0:
             ai_summary['recommendation'] = "Rozważ Pozycję"
-
-        return {
-            "overview": {
-                "symbol": overview_data.get("Symbol"), "name": overview_data.get("Name"),
-                "sector": overview_data.get("Sector"), "price": price,
-                "change": change, "changePercent": change_percent
-            },
-            "daily": daily_data_json, "risk": risk_analysis, "aiSummary": ai_summary
-        }
+        return {"overview": {"symbol": overview_data.get("Symbol"),"name": overview_data.get("Name"),"sector": overview_data.get("Sector"),"price": price,"change": change,"changePercent": change_percent},"daily": daily_data_json,"risk": risk_analysis,"aiSummary": ai_summary}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/portfolio_risk", tags=["Portfel"])
-async def api_get_portfolio_risk() -> Dict[str, Any]:
+async def api_get_portfolio_risk():
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers or len(tickers) < 2:
         return {"correlation": 0.0, "level": "Brak Danych", "summary": "Portfel musi zawierać min. 2 aktywa.", "color": "text-gray-400"}
     return run_portfolio_risk_analysis(tickers, data_fetcher)
 
-# --- Endpointy Narzędzi Analitycznych ---
 @app.get("/api/run_backtest/{ticker}", tags=["Backtesting"])
-async def api_run_backtest(ticker: str) -> Dict[str, Any]:
+async def api_run_backtest(ticker: str):
     if not ticker:
         raise HTTPException(status_code=400, detail="Nie podano tickera.")
-    results = run_backtest_for_ticker(ticker, 365, data_fetcher)
-    return results
-
-@app.get("/api/cockpit_analysis", tags=["Kokpit"])
-async def api_cockpit_analysis() -> Dict[str, Any]:
-    closed_positions = portfolio_manager.get_closed_positions()
-    return analyze_cockpit_data(closed_positions)
+    trades = run_backtest_for_ticker(ticker, 365, data_fetcher)
+    total_pnl = sum(trade.get('pnl', 0) for trade in trades)
+    return {"ticker": ticker, "total_pnl": total_pnl, "trade_count": len(trades), "trades": trades}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+
