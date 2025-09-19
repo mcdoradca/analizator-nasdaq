@@ -103,6 +103,9 @@
             analyzeButton: document.getElementById('analyze-button'),
             searchInput: document.getElementById('search-ticker-input'),
             backtestButton: document.getElementById('start-backtest-button'),
+            dreamTeamList: document.getElementById('dream-team-list'),
+            marketBarometer: document.getElementById('market-barometer-status'),
+            macroClimate: document.getElementById('macro-climate-status'),
             revolution: {
                 startBtn: document.getElementById('start-revolution-btn'),
                 pauseBtn: document.getElementById('pause-revolution-btn'),
@@ -152,7 +155,7 @@
             } else {
                 dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Wznów';
             }
-            dom.revolution.resultsContainer.innerHTML = log.slice().reverse().join('<br>');
+            dom.revolution.resultsContainer.innerHTML = log.slice().reverse().map(line => `<div>${line}</div>`).join('');
         }
 
         async function pollRevolutionStatus() {
@@ -165,27 +168,29 @@
                     revolutionStatusInterval = null;
                     await updateDreamTeamList();
                 }
-                return state; // ✅ ZWRACAMY POBRANY STAN
+                return state; 
             } catch (error) {
                 console.error("Błąd podczas odpytywania o status Rewolucji:", error);
-                clearInterval(revolutionStatusInterval);
-                revolutionStatusInterval = null;
-                throw error; // Rzucamy błąd dalej
+                if (revolutionStatusInterval) {
+                    clearInterval(revolutionStatusInterval);
+                    revolutionStatusInterval = null;
+                }
+                dom.revolution.resultsContainer.innerHTML = '<p class="text-red-400">Błąd połączenia ze stanem Rewolucji AI.</p>';
             }
         }
 
         async function handleStartRevolution() {
             try {
                 dom.revolution.startBtn.disabled = true;
+                dom.revolution.startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Uruchamiam...';
                 await fetchFromAPI('/api/revolution/start', { method: 'POST' });
                 if (!revolutionStatusInterval) {
-                    const initialState = await pollRevolutionStatus();
-                    if (initialState && initialState.is_active) {
-                       revolutionStatusInterval = setInterval(pollRevolutionStatus, 5000);
-                    }
+                    await pollRevolutionStatus(); // Natychmiastowe odpytanie
+                    revolutionStatusInterval = setInterval(pollRevolutionStatus, 5000);
                 }
             } catch (error) {
                 dom.revolution.startBtn.disabled = false;
+                dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Wznów';
             }
         }
 
@@ -203,19 +208,71 @@
             }
         }
         
-        // --- POZOSTAŁE FUNKCJE (bez zmian, dla kompletności) ---
-        // ... (tutaj umieść pełne, działające wersje tych funkcji)
+        // --- NOWA, NAPRAWIONA FUNKCJA ---
+        async function updateDreamTeamList() {
+            try {
+                dom.dreamTeamList.innerHTML = '<div class="loader scanner-loader mx-auto"></div>';
+                const dreamTeam = await fetchFromAPI('/api/portfolio/dream_team');
+                
+                if (!dreamTeam || dreamTeam.length === 0) {
+                    dom.dreamTeamList.innerHTML = '<p class="text-gray-500 text-sm px-2">Brak kandydatów w Dream Team. Uruchom Rewolucję AI, aby ich znaleźć.</p>';
+                    return;
+                }
+
+                let html = '';
+                dreamTeam.forEach(stock => {
+                    const changePercent = stock.changePercent ? parseFloat(stock.changePercent) : 0;
+                    const colorClass = changePercent >= 0 ? 'text-green-400' : 'text-red-400';
+                    const icon = changePercent >= 0 ? 'fa-arrow-up' : 'fa-arrow-down';
+                    const price = stock.currentPrice ? `$${stock.currentPrice.toFixed(2)}` : 'B/D';
+                    const score = stock.aiScore ? `${stock.aiScore}/3` : 'N/A';
+
+                    html += `
+                        <div class="flex justify-between items-center bg-gray-700/50 p-2 rounded-lg text-sm hover:bg-gray-700 cursor-pointer" onclick="document.getElementById('search-ticker-input').value='${stock.ticker}'; document.getElementById('analyze-button').click();">
+                            <div>
+                                <p class="font-bold text-white">${stock.ticker}</p>
+                                <p class="text-xs text-gray-400">Ocena AI: ${score}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-semibold">${price}</p>
+                                <p class="${colorClass} text-xs"><i class="fas ${icon}"></i> ${changePercent.toFixed(2)}%</p>
+                            </div>
+                        </div>
+                    `;
+                });
+                dom.dreamTeamList.innerHTML = html;
+            } catch (error) {
+                console.error('Błąd podczas aktualizacji Dream Team:', error);
+                dom.dreamTeamList.innerHTML = '<p class="text-red-400 text-sm px-2">Nie udało się załadować listy Dream Team.</p>';
+            }
+        }
+
+        async function updateMarketBarometer() {
+            try {
+                const data = await fetchFromAPI('/api/market_barometer');
+                dom.marketBarometer.innerHTML = `<span class="${data.color}">${data.summary}</span>`;
+            } catch (error) {
+                dom.marketBarometer.innerHTML = `<span class="text-gray-500">Błąd</span>`;
+            }
+        }
+
+        async function updateMacroClimate() {
+            try {
+                const data = await fetchFromAPI('/api/macro_climate');
+                dom.macroClimate.innerHTML = `<span class="${data.color}">${data.summary}</span>`;
+            } catch (error) {
+                dom.macroClimate.innerHTML = `<span class="text-gray-500">Błąd</span>`;
+            }
+        }
 
         async function initializeApp() {
             dom.authSection.classList.add('hidden');
             dom.appContainer.classList.remove('hidden');
             
-            // Rejestracja event listenerów
             dom.revolution.startBtn.addEventListener('click', handleStartRevolution);
             dom.revolution.pauseBtn.addEventListener('click', handlePauseRevolution);
-            // ... (inne event listenery)
-
-            // ✅ POPRAWIONA INICJALIZACJA STANU REWOLUCJI
+            
+            // Inicjalizacja stanu Rewolucji
             try {
                 const initialState = await pollRevolutionStatus();
                 if (initialState && initialState.is_active && !revolutionStatusInterval) {
@@ -227,9 +284,9 @@
             }
             
             // Wywołanie pozostałych funkcji inicjalizujących
-            updateDreamTeamList();
-            updateMacroClimate();
-            updateMarketBarometer();
+            await updateDreamTeamList();
+            await updateMacroClimate();
+            await updateMarketBarometer();
         }
         
         dom.enterAppBtn.addEventListener('click', initializeApp);
@@ -237,4 +294,3 @@
     </script>
 </body>
 </html>
-
