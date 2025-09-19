@@ -23,15 +23,15 @@ from cockpit_agent import analyze_cockpit_data
 app = FastAPI(
     title="Analizator Nasdaq API",
     description="Backend dla aplikacji analitycznej Guru Analizator Akcji Nasdaq.",
-    version="3.2.2"
+    version="3.2.1"
 )
 
 # --- KLUCZOWA POPRAWKA: Konfiguracja CORS ---
 # Definiujemy jawną listę zaufanych adresów URL.
-# Dodajemy adres frontendu, aby odblokować komunikację.
+# Render.com może używać różnych subdomen, dlatego dodajemy obie.
 origins = [
-    "https://analizator-nasdaq-1.onrender.com",
     "https://analizator-nasdaq.onrender.com",
+    "https://analizator-nasdaq-1.onrender.com",
     "http://localhost",
     "http://localhost:8000",
 ]
@@ -66,8 +66,6 @@ async def startup_event():
     asyncio.create_task(revolution_background_loop())
 
 # --- Endpointy ---
-# (Reszta pliku pozostaje bez zmian, poniżej znajduje się kompletny, działający kod)
-
 @app.get("/", tags=["Status"])
 def read_root():
     return {"status": "API Analizatora Nasdaq działa poprawnie."}
@@ -86,6 +84,7 @@ async def start_revolution_endpoint():
     if state["is_active"]:
         raise HTTPException(status_code=400, detail="Rewolucja AI jest już w toku.")
     
+    # Reset stanu, jeśli skanowanie było zakończone
     if state["is_completed"]:
         portfolio_manager.reset_revolution()
         
@@ -114,14 +113,14 @@ async def api_get_dream_team():
 async def api_get_golden_league():
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
-        return []
+        return [] # Zwróć pustą listę, jeśli Dream Team jest pusty
     return run_zlota_liga_analysis(tickers, data_fetcher)
 
 @app.get("/api/scan/quick_league", tags=["Ligi"])
 async def api_get_quick_league():
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
-        return []
+        return [] # Zwróć pustą listę, jeśli Dream Team jest pusty
     return run_quick_league_scan(tickers, data_fetcher)
 
 @app.get("/api/full_analysis/{ticker}", tags=["Analiza Spółki"])
@@ -167,4 +166,3 @@ async def api_run_backtest(ticker: str):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-
