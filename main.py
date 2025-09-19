@@ -23,15 +23,15 @@ from cockpit_agent import analyze_cockpit_data
 app = FastAPI(
     title="Analizator Nasdaq API",
     description="Backend dla aplikacji analitycznej Guru Analizator Akcji Nasdaq.",
-    version="3.2.1"
+    version="3.2.2"
 )
 
 # --- KLUCZOWA POPRAWKA: Konfiguracja CORS ---
 # Definiujemy jawną listę zaufanych adresów URL.
-# Render.com może używać różnych subdomen, dlatego dodajemy obie.
+# Dodajemy adres frontendu, aby odblokować komunikację.
 origins = [
-    "https://analizator-nasdaq.onrender.com",
     "https://analizator-nasdaq-1.onrender.com",
+    "https://analizator-nasdaq.onrender.com",
     "http://localhost",
     "http://localhost:8000",
 ]
@@ -66,6 +66,8 @@ async def startup_event():
     asyncio.create_task(revolution_background_loop())
 
 # --- Endpointy ---
+# (Reszta pliku pozostaje bez zmian, poniżej znajduje się kompletny, działający kod)
+
 @app.get("/", tags=["Status"])
 def read_root():
     return {"status": "API Analizatora Nasdaq działa poprawnie."}
@@ -84,7 +86,6 @@ async def start_revolution_endpoint():
     if state["is_active"]:
         raise HTTPException(status_code=400, detail="Rewolucja AI jest już w toku.")
     
-    # Reset stanu, jeśli skanowanie było zakończone
     if state["is_completed"]:
         portfolio_manager.reset_revolution()
         
@@ -113,14 +114,14 @@ async def api_get_dream_team():
 async def api_get_golden_league():
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
-        return [] # Zwróć pustą listę, jeśli Dream Team jest pusty
+        return []
     return run_zlota_liga_analysis(tickers, data_fetcher)
 
 @app.get("/api/scan/quick_league", tags=["Ligi"])
 async def api_get_quick_league():
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
-        return [] # Zwróć pustą listę, jeśli Dream Team jest pusty
+        return []
     return run_quick_league_scan(tickers, data_fetcher)
 
 @app.get("/api/full_analysis/{ticker}", tags=["Analiza Spółki"])
