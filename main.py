@@ -29,13 +29,7 @@ app = FastAPI(
 )
 
 # --- OSTATECZNA KONFIGURACJA CORS ---
-origins = [
-    "https://analizator-nasdaq-1.onrender.com",
-    "https://analizator-nasdaq.onrender.com",
-    "http://localhost",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-]
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -161,6 +155,13 @@ async def api_run_backtest(ticker: str) -> Dict[str, Any]:
         "trade_count": len(results),
         "trades": results
     }
+@app.get("/api/test")
+async def test_endpoint():
+    return {"message": "Serwer działa!", "status": "ok"}
+
+@app.post("/api/test_post")
+async def test_post_endpoint():
+    return {"message": "POST działa!", "status": "ok"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
@@ -168,7 +169,7 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=port,
-        reload=True,
-        timeout_keep_alive=120,  # Zwiększ timeout
+        reload=False,
+        timeout_keep_alive=60,  # Zwiększ timeout
         workers=1  # Użyj tylko 1 worker na free plan
     )
