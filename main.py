@@ -8,6 +8,7 @@ import os
 import pandas as pd
 import pandas_ta as ta
 from typing import Dict, Any, List
+import time
 
 # --- Importy Agentów i Modułów ---
 from data_fetcher import DataFetcher, transform_to_dataframe
@@ -65,14 +66,28 @@ async def api_get_macro_climate() -> Dict[str, Any]:
 async def api_get_market_barometer() -> Dict[str, Any]:
     return get_market_barometer(data_fetcher)
 
+import time  # Dodaj ten import na górze pliku z innymi importami
+
 @app.post("/api/run_revolution", tags=["Rewolucja AI"])
 @app.options("/api/run_revolution")
 async def api_run_revolution() -> Dict[str, Any]:
+    start_time = time.time()
+    print(f"[REVOLUTION] Rozpoczynanie market scan... {start_time}")
+    
     scan_results = run_market_scan(data_fetcher)
+    
+    scan_time = time.time() - start_time
+    print(f"[REVOLUTION] Market scan zakończony w {scan_time:.2f}s")
+    
     if 'candidates_objects' in scan_results:
         portfolio_manager.update_dream_team(scan_results['candidates_objects'])
+        print(f"[REVOLUTION] Dream team zaktualizowany")
+    
+    total_time = time.time() - start_time
+    print(f"[REVOLUTION] Cała operacja zakończona w {total_time:.2f}s")
+    
     return scan_results
-
+    
 @app.get("/api/portfolio/dream_team", tags=["Portfel"])
 async def api_get_dream_team() -> list:
     return portfolio_manager.get_dream_team()
@@ -149,5 +164,11 @@ async def api_run_backtest(ticker: str) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True,
+        timeout_keep_alive=120,  # Zwiększ timeout
+        workers=1  # Użyj tylko 1 worker na free plan
+    )
