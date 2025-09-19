@@ -62,7 +62,7 @@ async def api_get_market_barometer() -> Dict[str, Any]:
 
 import time  # Dodaj ten import na górze pliku z innymi importami
 
-@app.post("/api/run_revolution", tags=["Rewolucja AI"])
+@app.get("/api/run_revolution", tags=["Rewolucja AI"])
 @app.options("/api/run_revolution")
 async def api_run_revolution() -> Dict[str, Any]:
     start_time = time.time()
