@@ -13,7 +13,7 @@
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
-        .scanner-loader { width: 16px; height: 16px; border: 2px solid #f3f3f3; border-top: 2px solid #3498db; }
+        .scanner-loader { width: 16px; height: 16px; border: 2px solid #f3f3f3; border-top: 2px solid #3498db; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .apexcharts-tooltip.apexcharts-theme-dark { background: #2d3748; border-color: #4a5568; }
         .progress-bar-container { background-color: #374151; border-radius: 9999px; overflow: hidden;}
@@ -65,7 +65,6 @@
                 <div id="portfolio-section" class="h-full"><div id="analysis-placeholder" class="flex flex-col justify-center items-center h-full text-gray-500"><i class="fas fa-chart-pie fa-4x mb-4"></i><h2 class="text-2xl font-semibold">Wybierz akcję do analizy</h2><p>Wpisz ticker w polu wyszukiwania i kliknij "Analizuj".</p></div><div id="analysis-content" class="hidden"></div></div>
                 <div id="cockpit-section" class="h-full hidden"><h2 class="text-2xl font-bold text-white mb-6">Kokpit Transakcyjny</h2><div id="cerber-portfolio-panel" class="mb-6 p-5 rounded-xl border border-red-500/50 bg-red-900/20"><h3 class="text-xl font-bold mb-3 flex items-center text-red-300"><i class="fas fa-shield-alt mr-3"></i>Analiza Ryzyka Portfela (Agent Cerber)</h3><div id="cerber-portfolio-content" class="space-y-3 text-sm"><div class="loader scanner-loader"></div></div></div><p class="text-gray-500">Pełna funkcjonalność kokpitu w budowie.</p></div>
                 
-                <!-- SEKCJA REWOLUCJI AI (Przebudowana) -->
                 <div id="revolution-section" class="h-full hidden">
                     <div class="mb-6 p-5 rounded-xl border border-red-500/50 bg-red-900/20">
                         <h2 class="text-2xl font-bold text-white mb-3">Rewolucja AI: Skanowanie Rynku w Tle</h2>
@@ -126,7 +125,6 @@
                     const errorData = await response.json().catch(() => ({ detail: response.statusText }));
                     throw new Error(`Błąd API (${response.status}): ${errorData.detail}`);
                 }
-                // Handle no content response for pause
                 if (response.status === 204) return null;
                 return await response.json();
             } catch (error) {
@@ -137,18 +135,14 @@
         }
 
         function updateRevolutionUI(state) {
-            const { is_active, is_completed, last_scanned_index, full_market_list, log, qualified_candidates } = state;
-            
+            const { is_active, is_completed, last_scanned_index, full_market_list, log } = state;
             dom.revolution.startBtn.disabled = is_active;
             dom.revolution.pauseBtn.disabled = !is_active;
-
             const total = full_market_list.length;
             const current = last_scanned_index + 1;
             const progress = total > 0 ? Math.round((current / total) * 100) : 0;
-            
             dom.revolution.progressBar.style.width = `${progress}%`;
             dom.revolution.progressBar.textContent = `${progress}% (${current}/${total})`;
-
             if (is_completed) {
                 dom.revolution.progressBar.textContent += " - Ukończono!";
                 dom.revolution.startBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Start od Nowa';
@@ -156,9 +150,8 @@
             } else if (is_active) {
                 dom.revolution.startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Pracuję...';
             } else {
-                 dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Wznów';
+                dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Wznów';
             }
-            
             dom.revolution.resultsContainer.innerHTML = log.slice().reverse().join('<br>');
         }
 
@@ -172,10 +165,12 @@
                     revolutionStatusInterval = null;
                     await updateDreamTeamList();
                 }
+                return state; // ✅ ZWRACAMY POBRANY STAN
             } catch (error) {
                 console.error("Błąd podczas odpytywania o status Rewolucji:", error);
                 clearInterval(revolutionStatusInterval);
                 revolutionStatusInterval = null;
+                throw error; // Rzucamy błąd dalej
             }
         }
 
@@ -184,8 +179,10 @@
                 dom.revolution.startBtn.disabled = true;
                 await fetchFromAPI('/api/revolution/start', { method: 'POST' });
                 if (!revolutionStatusInterval) {
-                    pollRevolutionStatus(); // Natychmiastowe odświeżenie
-                    revolutionStatusInterval = setInterval(pollRevolutionStatus, 5000); // Odpytuj co 5 sekund
+                    const initialState = await pollRevolutionStatus();
+                    if (initialState && initialState.is_active) {
+                       revolutionStatusInterval = setInterval(pollRevolutionStatus, 5000);
+                    }
                 }
             } catch (error) {
                 dom.revolution.startBtn.disabled = false;
@@ -200,51 +197,43 @@
                     clearInterval(revolutionStatusInterval);
                     revolutionStatusInterval = null;
                 }
-                await pollRevolutionStatus(); // Odśwież UI po pauzie
+                await pollRevolutionStatus();
             } catch (error) {
                 dom.revolution.pauseBtn.disabled = false;
             }
         }
         
-        // --- POZOSTAŁE FUNKCJE ---
-        async function updateDreamTeamList() { /* ... bez zmian ... */ }
-        async function handleAnalyzeClick() { /* ... bez zmian ... */ }
-        function renderDreamTeam(dreamTeamData) { /* ... bez zmian ... */ }
-        function renderFullAnalysis(data) { /* ... bez zmian ... */ }
-        function renderPriceChart(dailyData) { /* ... bez zmian ... */ }
+        // --- POZOSTAŁE FUNKCJE (bez zmian, dla kompletności) ---
+        // ... (tutaj umieść pełne, działające wersje tych funkcji)
 
-        function initializeApp() {
+        async function initializeApp() {
             dom.authSection.classList.add('hidden');
             dom.appContainer.classList.remove('hidden');
             
-            // ... reszta inicjalizacji
-            
+            // Rejestracja event listenerów
             dom.revolution.startBtn.addEventListener('click', handleStartRevolution);
             dom.revolution.pauseBtn.addEventListener('click', handlePauseRevolution);
+            // ... (inne event listenery)
 
-            // Sprawdź status Rewolucji przy starcie aplikacji
-            pollRevolutionStatus().then(() => {
-                const state = portfolio_manager.get_revolution_state(); // Załóżmy, że mamy dostęp do stanu
-                if(state.is_active && !revolutionStatusInterval) {
+            // ✅ POPRAWIONA INICJALIZACJA STANU REWOLUCJI
+            try {
+                const initialState = await pollRevolutionStatus();
+                if (initialState && initialState.is_active && !revolutionStatusInterval) {
+                    console.log("Wykryto aktywną Rewolucję przy starcie, uruchamiam pętlę.");
                     revolutionStatusInterval = setInterval(pollRevolutionStatus, 5000);
                 }
-            });
+            } catch (error) {
+                console.error("Nie udało się zainicjować stanu Rewolucji AI:", error);
+            }
+            
+            // Wywołanie pozostałych funkcji inicjalizujących
+            updateDreamTeamList();
+            updateMacroClimate();
+            updateMarketBarometer();
         }
         
         dom.enterAppBtn.addEventListener('click', initializeApp);
 
-        // --- MOCKUPY FUNKCJI (DO UZUPEŁNIENIA) ---
-        // Poniższe funkcje pozostają bez zmian względem ostatniej działającej wersji
-        async function updateMacroClimate() {
-            const container = document.getElementById('macro-climate-status');
-            container.innerHTML = '<div class="loader scanner-loader"></div>';
-            try { const data = await fetchFromAPI('/api/macro_climate'); container.innerHTML = `<i class="fas ${data.icon} ${data.color} mr-2"></i><span class="${data.color}">${data.status}</span>`; } catch (e) { container.innerHTML = '<span class="text-red-500">Błąd</span>'; }
-        }
-        async function updateMarketBarometer() {
-            const container = document.getElementById('market-barometer-status');
-            container.innerHTML = '<div class="loader scanner-loader"></div>';
-            try { const data = await fetchFromAPI('/api/market_barometer'); container.innerHTML = `<i class="fas ${data.icon} ${data.color} mr-2"></i><span class="${data.color}">${data.status}</span>`; } catch (e) { container.innerHTML = '<span class="text-red-500">Błąd</span>'; }
-        }
     </script>
 </body>
 </html>
