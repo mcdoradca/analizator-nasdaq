@@ -62,7 +62,7 @@ async def api_get_market_barometer() -> Dict[str, Any]:
 
 import time  # Dodaj ten import na górze pliku z innymi importami
 
-@app.get("/api/run_revolution", tags=["Rewolucja AI"])
+@app.post("/api/run_revolution", tags=["Rewolucja AI"])
 @app.options("/api/run_revolution")
 async def api_run_revolution() -> Dict[str, Any]:
     start_time = time.time()
@@ -155,10 +155,6 @@ async def api_run_backtest(ticker: str) -> Dict[str, Any]:
         "trade_count": len(results),
         "trades": results
     }
-@app.get("/api/test_post")
-@app.post("/api/test_post")
-async def test_post_endpoint():
-    return {"message": "Działa zarówno GET jak i POST!", "status": "ok"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
