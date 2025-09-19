@@ -46,6 +46,11 @@ if not api_key:
 data_fetcher = DataFetcher(api_key=api_key)
 portfolio_manager = PortfolioManager()
 
+def run_market_scan():
+    """Tymczasowa funkcja dla kompatybilności"""
+    print("UWAGA: run_market_scan jest przestarzała - użyj run_revolution_step")
+    return run_revolution_step(portfolio_manager, data_fetcher)
+    
 # --- NOWA LOGIKA: Pętla Skanowania w Tle ---
 
 async def revolution_background_loop():
