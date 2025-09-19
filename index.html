@@ -1,4 +1,4 @@
-
+<!DOCTYPE html>
 <html lang="pl" class="dark">
 <head>
     <meta charset="UTF-8">
@@ -132,13 +132,17 @@
                 const response = await fetch(url, options);
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-                    throw new Error(`API Error (${response.status}): ${errorData.detail}`);
+                    throw new Error(`Błąd API (${response.status}): ${errorData.detail}`);
                 }
                 if (response.status === 204) return null;
                 return await response.json();
             } catch (error) {
-                console.error(`Fetch Error (${endpoint}):`, error);
-                alert(`Server communication error.\n\nError: ${error.message}`);
+                console.error(`Błąd pobierania (${endpoint}):`, error);
+                // Zmieniono alert na bardziej czytelny komunikat
+                const userFriendlyMessage = error.message.includes("Failed to fetch") 
+                    ? "Błąd połączenia z serwerem. Sprawdź swoje połączenie internetowe lub spróbuj ponownie później."
+                    : `Błąd komunikacji z serwerem: ${error.message}`;
+                alert(userFriendlyMessage);
                 throw error;
             }
         }
@@ -154,13 +158,13 @@
             dom.revolution.progressBar.textContent = `${progress}% (${current}/${total})`;
 
             if (is_completed) {
-                dom.revolution.progressBar.textContent += " - Completed!";
-                dom.revolution.startBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Start Anew';
+                dom.revolution.progressBar.textContent += " - Ukończono!";
+                dom.revolution.startBtn.innerHTML = '<i class="fas fa-redo mr-2"></i>Start od Nowa';
                 dom.revolution.startBtn.disabled = false;
             } else if (is_active) {
-                dom.revolution.startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Working...';
+                dom.revolution.startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Pracuję...';
             } else {
-                dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Resume';
+                dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Wznów';
             }
             dom.revolution.resultsContainer.innerHTML = log.slice().reverse().map(line => `<div>${line}</div>`).join('');
         }
@@ -168,21 +172,23 @@
         async function pollRevolutionStatus() {
             try {
                 const state = await fetchFromAPI('/api/revolution/status');
-                updateRevolutionUI(state);
-                if (state.is_completed && revolutionStatusInterval) {
-                    clearInterval(revolutionStatusInterval);
-                    revolutionStatusInterval = null;
-                    await updateAllLists();
+                if (state) {
+                    updateRevolutionUI(state);
+                    if (state.is_completed && revolutionStatusInterval) {
+                        clearInterval(revolutionStatusInterval);
+                        revolutionStatusInterval = null;
+                        await updateAllLists();
+                    }
                 }
             } catch (error) {
                 if (revolutionStatusInterval) clearInterval(revolutionStatusInterval);
-                dom.revolution.resultsContainer.innerHTML = '<p class="text-red-400">Connection error to AI Revolution status.</p>';
+                dom.revolution.resultsContainer.innerHTML = '<p class="text-red-400">Błąd połączenia ze stanem Rewolucji AI.</p>';
             }
         }
 
         async function handleStartRevolution() {
             dom.revolution.startBtn.disabled = true;
-            dom.revolution.startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Starting...';
+            dom.revolution.startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Uruchamiam...';
             try {
                 await fetchFromAPI('/api/revolution/start', { method: 'POST' });
                 if (!revolutionStatusInterval) {
@@ -190,7 +196,8 @@
                     revolutionStatusInterval = setInterval(pollRevolutionStatus, 5000);
                 }
             } catch (error) {
-                dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Resume';
+                dom.revolution.startBtn.disabled = false;
+                dom.revolution.startBtn.innerHTML = '<i class="fas fa-play mr-2"></i>Start / Wznów';
             }
         }
 
@@ -213,8 +220,11 @@
             try {
                 const dreamTeam = await fetchFromAPI('/api/portfolio/dream_team');
                 if (!dreamTeam || dreamTeam.length === 0) {
-                    dom.dreamTeamList.innerHTML = '<p class="text-gray-500 text-sm px-2">No candidates. Run AI Revolution.</p>';
-                    return;
+                    dom.dreamTeamList.innerHTML = '<p class="text-gray-500 text-sm px-2">Brak kandydatów. Uruchom Rewolucję AI.</p>';
+                    // KLUCZOWA POPRAWKA: Jeśli Dream Team jest pusty, czyścimy pozostałe listy
+                    dom.goldenLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">Oczekuje na Dream Team...</p>';
+                    dom.quickLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">Oczekuje na Dream Team...</p>';
+                    return false; // Zwracamy false, aby dać znać, że listy nie są gotowe
                 }
                 dom.dreamTeamList.innerHTML = dreamTeam.map(stock => {
                     const changePercent = stock.changePercent ? parseFloat(stock.changePercent) : 0;
@@ -224,16 +234,18 @@
                         <div class="flex justify-between items-center bg-gray-700/50 p-2 rounded-lg text-sm hover:bg-gray-700 cursor-pointer" onclick="analyzeTicker('${stock.ticker}')">
                             <div>
                                 <p class="font-bold text-white">${stock.ticker}</p>
-                                <p class="text-xs text-gray-400">AI Score: ${stock.aiScore || 'N/A'}/3</p>
+                                <p class="text-xs text-gray-400">Ocena AI: ${stock.aiScore || 'N/A'}/3</p>
                             </div>
                             <div class="text-right">
-                                <p class="font-semibold">$${stock.currentPrice?.toFixed(2) || 'N/A'}</p>
+                                <p class="font-semibold">$${stock.currentPrice?.toFixed(2) || 'B/D'}</p>
                                 <p class="${color} text-xs"><i class="fas ${icon}"></i> ${changePercent.toFixed(2)}%</p>
                             </div>
                         </div>`;
                 }).join('');
+                return true; // Zwracamy true, jeśli Dream Team został załadowany
             } catch (error) {
-                dom.dreamTeamList.innerHTML = '<p class="text-red-400 text-sm px-2">Error loading list.</p>';
+                dom.dreamTeamList.innerHTML = '<p class="text-red-400 text-sm px-2">Błąd ładowania listy.</p>';
+                return false;
             }
         }
 
@@ -242,7 +254,7 @@
             try {
                 const goldenLeague = await fetchFromAPI('/api/scan/golden_league');
                 if (!goldenLeague || goldenLeague.length === 0) {
-                    dom.goldenLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">No results. Run AI Revolution first.</p>';
+                    dom.goldenLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">Brak wyników analizy.</p>';
                     return;
                 }
                  dom.goldenLeagueList.innerHTML = goldenLeague.map(stock => `
@@ -257,7 +269,7 @@
                     </div>
                 `).join('');
             } catch (error) {
-                dom.goldenLeagueList.innerHTML = '<p class="text-red-400 text-sm px-2">Error loading list.</p>';
+                dom.goldenLeagueList.innerHTML = '<p class="text-red-400 text-sm px-2">Błąd ładowania listy.</p>';
             }
         }
 
@@ -266,7 +278,7 @@
             try {
                 const quickLeague = await fetchFromAPI('/api/scan/quick_league');
                 if (!quickLeague || quickLeague.length === 0) {
-                    dom.quickLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">No tactical opportunities found.</p>';
+                    dom.quickLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">Brak okazji taktycznych.</p>';
                     return;
                 }
                 dom.quickLeagueList.innerHTML = quickLeague.map(stock => `
@@ -276,14 +288,14 @@
                             <span class="text-cyan-300 font-bold">${stock.signal}</span>
                         </div>
                         <div class="text-gray-400">
-                            <span>Entry: <strong>$${stock.plan.entry.toFixed(2)}</strong></span> |
-                            <span>Target: <strong class="text-green-400">$${stock.plan.target.toFixed(2)}</strong></span> |
+                            <span>Wejście: <strong>$${stock.plan.entry.toFixed(2)}</strong></span> |
+                            <span>Cel: <strong class="text-green-400">$${stock.plan.target.toFixed(2)}</strong></span> |
                             <span>Stop: <strong class="text-red-400">$${stock.plan.stopLoss.toFixed(2)}</strong></span>
                         </div>
                     </div>
                 `).join('');
             } catch (error) {
-                dom.quickLeagueList.innerHTML = '<p class="text-red-400 text-sm px-2">Error loading list.</p>';
+                dom.quickLeagueList.innerHTML = '<p class="text-red-400 text-sm px-2">Błąd ładowania listy.</p>';
             }
         }
         
@@ -292,7 +304,7 @@
                 const data = await fetchFromAPI('/api/market_barometer');
                 dom.marketBarometer.innerHTML = `<span class="${data.color}">${data.status}</span>`;
             } catch (error) {
-                dom.marketBarometer.innerHTML = `<span class="text-gray-500">Error</span>`;
+                dom.marketBarometer.innerHTML = `<span class="text-gray-500">Błąd</span>`;
             }
         }
 
@@ -301,7 +313,7 @@
                 const data = await fetchFromAPI('/api/macro_climate');
                 dom.macroClimate.innerHTML = `<span class="${data.color}">${data.status}</span>`;
             } catch (error) {
-                dom.macroClimate.innerHTML = `<span class="text-gray-500">Error</span>`;
+                dom.macroClimate.innerHTML = `<span class="text-gray-500">Błąd</span>`;
             }
         }
 
@@ -310,12 +322,12 @@
             try {
                 const data = await fetchFromAPI('/api/portfolio_risk');
                 dom.cerberPortfolioContent.innerHTML = `
-                    <p><strong class="font-semibold text-white">Portfolio Risk Level:</strong> <span class="${data.color}">${data.level}</span></p>
-                    <p><strong class="font-semibold text-white">Correlation Coefficient:</strong> ${data.correlation.toFixed(3)}</p>
-                    <p><strong class="font-semibold text-white">Agent's Conclusion:</strong> ${data.summary}</p>
+                    <p><strong class="font-semibold text-white">Poziom Ryzyka Portfela:</strong> <span class="${data.color}">${data.level}</span></p>
+                    <p><strong class="font-semibold text-white">Współczynnik Korelacji:</strong> ${data.correlation.toFixed(3)}</p>
+                    <p><strong class="font-semibold text-white">Wnioski Agenta:</strong> ${data.summary}</p>
                 `;
             } catch (error) {
-                dom.cerberPortfolioContent.innerHTML = '<p class="text-red-400">Error during portfolio risk analysis.</p>';
+                dom.cerberPortfolioContent.innerHTML = '<p class="text-red-400">Błąd podczas analizy ryzyka portfela.</p>';
             }
         }
         
@@ -346,15 +358,15 @@
                     <div id="price-chart" class="w-full h-96"></div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="bg-gray-800 p-5 rounded-xl">
-                           <h3 class="text-xl font-bold mb-3 text-blue-300"><i class="fas fa-brain mr-2"></i>AI Analysis</h3>
-                           <p><strong class="font-semibold text-white">Recommendation:</strong> ${aiSummary.recommendation}</p>
-                           <p><strong class="font-semibold text-white">Justification:</strong> ${aiSummary.justification}</p>
+                           <h3 class="text-xl font-bold mb-3 text-blue-300"><i class="fas fa-brain mr-2"></i>Analiza AI</h3>
+                           <p><strong class="font-semibold text-white">Rekomendacja:</strong> ${aiSummary.recommendation}</p>
+                           <p><strong class="font-semibold text-white">Uzasadnienie:</strong> ${aiSummary.justification}</p>
                         </div>
                         <div class="bg-gray-800 p-5 rounded-xl">
-                           <h3 class="text-xl font-bold mb-3 text-yellow-300"><i class="fas fa-exclamation-triangle mr-2"></i>Risk Analysis</h3>
-                           <p><strong class="font-semibold text-white">Risk Level:</strong> <span class="${risk.riskColor}">${risk.riskLevel}</span></p>
+                           <h3 class="text-xl font-bold mb-3 text-yellow-300"><i class="fas fa-exclamation-triangle mr-2"></i>Analiza Ryzyka</h3>
+                           <p><strong class="font-semibold text-white">Poziom Ryzyka:</strong> <span class="${risk.riskColor}">${risk.riskLevel}</span></p>
                            <p><strong class="font-semibold text-white">Beta (vs QQQ):</strong> ${risk.beta}</p>
-                           <p><strong class="font-semibold text-white">Correlation:</strong> ${risk.correlation}</p>
+                           <p><strong class="font-semibold text-white">Korelacja:</strong> ${risk.correlation}</p>
                         </div>
                     </div>`;
 
@@ -382,14 +394,14 @@
                 dom.backtestButton.disabled = false;
 
             } catch (error) {
-                 dom.analysisPlaceholder.innerHTML = `<div class="text-center text-red-400"><i class="fas fa-exclamation-circle fa-3x mb-4"></i><h3 class="text-xl">Analysis Error</h3><p>Could not retrieve data for ticker: ${currentTicker}. Please check the symbol.</p></div>`;
+                 dom.analysisPlaceholder.innerHTML = `<div class="text-center text-red-400"><i class="fas fa-exclamation-circle fa-3x mb-4"></i><h3 class="text-xl">Błąd Analizy</h3><p>Nie można pobrać danych dla tickera: ${currentTicker}. Sprawdź poprawność symbolu.</p></div>`;
             }
         }
         
         async function handleBacktest() {
             if (!currentTicker) return;
             dom.backtestButton.disabled = true;
-            dom.backtestButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testing...';
+            dom.backtestButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Testuję...';
             dom.backtestingResults.innerHTML = '<div class="loader scanner-loader mx-auto"></div>';
 
             try {
@@ -399,22 +411,22 @@
                     <tr class="border-b border-gray-700">
                         <td class="py-2 px-3">${trade.openDate}</td>
                         <td class="py-2 px-3">${trade.closeDate}</td>
-                        <td class="py-2 px-3">$${trade.pnl.toFixed(2)}</td>
+                        <td class="py-2 px-3 ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">$${trade.pnl.toFixed(2)}</td>
                         <td class="py-2 px-3">${trade.reason}</td>
                     </tr>`).join('');
 
                 if(results.trades.length === 0) {
-                    tradesHtml = '<tr><td colspan="4" class="text-center py-4 text-gray-500">No trades to display for the period.</td></tr>';
+                    tradesHtml = '<tr><td colspan="4" class="text-center py-4 text-gray-500">Brak transakcji w danym okresie.</td></tr>';
                 }
 
                 dom.backtestingResults.innerHTML = `
                     <div class="grid grid-cols-2 gap-4 mb-4">
                         <div class="bg-gray-700 p-3 rounded-lg text-center">
-                            <p class="text-sm text-gray-400">Total Profit/Loss</p>
+                            <p class="text-sm text-gray-400">Całkowity Zysk/Strata</p>
                             <p class="text-2xl font-bold ${totalPnlColor}">$${results.total_pnl.toFixed(2)}</p>
                         </div>
                         <div class="bg-gray-700 p-3 rounded-lg text-center">
-                            <p class="text-sm text-gray-400">Number of Trades</p>
+                            <p class="text-sm text-gray-400">Liczba Transakcji</p>
                             <p class="text-2xl font-bold">${results.trade_count}</p>
                         </div>
                     </div>
@@ -422,20 +434,20 @@
                         <table class="w-full text-left text-sm">
                             <thead class="bg-gray-700/50">
                                 <tr>
-                                    <th class="py-2 px-3 rounded-tl-lg">Entry Date</th>
-                                    <th class="py-2 px-3">Exit Date</th>
-                                    <th class="py-2 px-3">P/L</th>
-                                    <th class="py-2 px-3 rounded-tr-lg">Reason</th>
+                                    <th class="py-2 px-3 rounded-tl-lg">Data Wejścia</th>
+                                    <th class="py-2 px-3">Data Wyjścia</th>
+                                    <th class="py-2 px-3">Z/S</th>
+                                    <th class="py-2 px-3 rounded-tr-lg">Powód</th>
                                 </tr>
                             </thead>
                             <tbody>${tradesHtml}</tbody>
                         </table>
                     </div>`;
             } catch (error) {
-                dom.backtestingResults.innerHTML = '<p class="text-red-400">An error occurred during the backtest.</p>';
+                dom.backtestingResults.innerHTML = '<p class="text-red-400">Wystąpił błąd podczas backtestu.</p>';
             } finally {
                 dom.backtestButton.disabled = false;
-                dom.backtestButton.innerHTML = '<i class="fas fa-play mr-2"></i>Run Test';
+                dom.backtestButton.innerHTML = '<i class="fas fa-play mr-2"></i>Uruchom Test';
             }
         }
 
@@ -469,9 +481,12 @@
         }
         
         async function updateAllLists() {
-            await updateDreamTeamList();
-            await updateGoldenLeagueList();
-            await updateQuickLeagueList();
+            // KLUCZOWA POPRAWKA: Uruchamiamy analizę lig dopiero po załadowaniu Dream Teamu
+            const dreamTeamReady = await updateDreamTeamList();
+            if (dreamTeamReady) {
+                await updateGoldenLeagueList();
+                await updateQuickLeagueList();
+            }
         }
 
         async function initializeApp() {
@@ -488,7 +503,7 @@
                     revolutionStatusInterval = setInterval(pollRevolutionStatus, 5000);
                 }
             } catch (error) {
-                console.error("Failed to initialize AI Revolution state:", error);
+                console.error("Błąd inicjalizacji stanu Rewolucji AI:", error);
             }
             
             await updateAllLists();
