@@ -32,7 +32,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"], # Zmieniono na bardziej liberalne na czas developmentu, można zawęzić
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -46,11 +46,6 @@ if not api_key:
 data_fetcher = DataFetcher(api_key=api_key)
 portfolio_manager = PortfolioManager()
 
-def run_market_scan():
-    """Tymczasowa funkcja dla kompatybilności"""
-    print("UWAGA: run_market_scan jest przestarzała - użyj run_revolution_step")
-    return run_revolution_step(portfolio_manager, data_fetcher)
-    
 # --- NOWA LOGIKA: Pętla Skanowania w Tle ---
 
 async def revolution_background_loop():
@@ -64,8 +59,6 @@ async def revolution_background_loop():
         if state.get("is_active"):
             print(f"[Background] Wykonuję krok Rewolucji. Indeks: {state.get('last_scanned_index')}")
             run_revolution_step(portfolio_manager, data_fetcher)
-        else:
-            print("[Background] Rewolucja AI nie jest aktywna, pętla czeka.")
         
         # Czekamy 5 sekund przed kolejnym krokiem, aby nie obciążać serwera
         await asyncio.sleep(5)
@@ -86,7 +79,7 @@ async def start_revolution_endpoint():
         raise HTTPException(status_code=400, detail="Rewolucja AI jest już w toku.")
 
     # Jeśli to nowy start, najpierw pobierz listę rynku
-    if state["last_scanned_index"] == -1:
+    if state["last_scanned_index"] == -1 or state["is_completed"]:
         market_list = agent_listy_rynkowej(data_fetcher)
         if not market_list:
             raise HTTPException(status_code=500, detail="Nie udało się pobrać listy rynku z Alpha Vantage.")
@@ -129,13 +122,12 @@ async def api_get_dream_team() -> list:
 @app.get("/api/portfolio_risk", tags=["Portfel"])
 async def api_get_portfolio_risk() -> Dict[str, Any]:
     tickers = portfolio_manager.get_dream_team_tickers()
-    if not tickers:
+    if not tickers or len(tickers) < 2:
         return {"correlation": 0.0, "level": "Brak Danych", "summary": "Portfel musi zawierać min. 2 aktywa.", "color": "text-gray-400"}
     return run_portfolio_risk_analysis(tickers, data_fetcher)
 
 @app.get("/api/full_analysis/{ticker}", tags=["Analiza Spółki"])
 async def api_full_analysis(ticker: str) -> Dict[str, Any]:
-    # ... (logika tego endpointu pozostaje bez zmian)
     try:
         overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
         daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
@@ -168,4 +160,3 @@ async def api_run_backtest(ticker: str) -> Dict[str, Any]:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-
