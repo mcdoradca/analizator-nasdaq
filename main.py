@@ -23,12 +23,14 @@ from cockpit_agent import analyze_cockpit_data
 app = FastAPI(
     title="Analizator Nasdaq API",
     description="Backend dla aplikacji analitycznej Guru Analizator Akcji Nasdaq.",
-    version="3.2.0"
+    version="3.2.1"
 )
 
 # --- KLUCZOWA POPRAWKA: Konfiguracja CORS ---
-# Definiujemy listę zaufanych źródeł.
+# Definiujemy jawną listę zaufanych adresów URL.
+# Render.com może używać różnych subdomen, dlatego dodajemy obie.
 origins = [
+    "https://analizator-nasdaq.onrender.com",
     "https://analizator-nasdaq-1.onrender.com",
     "http://localhost",
     "http://localhost:8000",
@@ -36,7 +38,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, # Używamy zdefiniowanej listy
+    allow_origins=origins, # Używamy zdefiniowanej, bezpiecznej listy
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -64,8 +66,6 @@ async def startup_event():
     asyncio.create_task(revolution_background_loop())
 
 # --- Endpointy ---
-# (Reszta pliku pozostaje bez zmian)
-
 @app.get("/", tags=["Status"])
 def read_root():
     return {"status": "API Analizatora Nasdaq działa poprawnie."}
@@ -84,14 +84,17 @@ async def start_revolution_endpoint():
     if state["is_active"]:
         raise HTTPException(status_code=400, detail="Rewolucja AI jest już w toku.")
     
-    if state["last_scanned_index"] == -1 or state["is_completed"]:
-        market_list = agent_listy_rynkowej(data_fetcher)
-        if not market_list:
-            raise HTTPException(status_code=500, detail="Nie udało się pobrać listy rynku.")
-        portfolio_manager.start_revolution(market_list)
-    else:
-        portfolio_manager.start_revolution(state["full_market_list"])
+    # Reset stanu, jeśli skanowanie było zakończone
+    if state["is_completed"]:
+        portfolio_manager.reset_revolution()
+        
+    market_list = agent_listy_rynkowej(data_fetcher)
+    if not market_list:
+        raise HTTPException(status_code=500, detail="Nie udało się pobrać listy rynku z Alpha Vantage.")
+    
+    portfolio_manager.start_revolution(market_list)
     return {"message": "Rewolucja AI została uruchomiona w tle."}
+
 
 @app.post("/api/revolution/pause", tags=["Rewolucja AI"])
 async def pause_revolution_endpoint():
@@ -110,23 +113,22 @@ async def api_get_dream_team():
 async def api_get_golden_league():
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
-        return []
+        return [] # Zwróć pustą listę, jeśli Dream Team jest pusty
     return run_zlota_liga_analysis(tickers, data_fetcher)
 
 @app.get("/api/scan/quick_league", tags=["Ligi"])
 async def api_get_quick_league():
     tickers = portfolio_manager.get_dream_team_tickers()
     if not tickers:
-        return []
+        return [] # Zwróć pustą listę, jeśli Dream Team jest pusty
     return run_quick_league_scan(tickers, data_fetcher)
 
 @app.get("/api/full_analysis/{ticker}", tags=["Analiza Spółki"])
 async def api_full_analysis(ticker: str):
-    # ... (bez zmian)
     try:
         overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
         daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
-        if not overview_data or 'Name' not in overview_data or not daily_data_json:
+        if not overview_data or 'Name' not in overview_data or not daily_data_json or 'Time Series (Daily)' not in daily_data_json:
             raise HTTPException(status_code=404, detail=f"Brak kompletnych danych dla {ticker}.")
         df = transform_to_dataframe(daily_data_json)
         market_df_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
@@ -145,7 +147,6 @@ async def api_full_analysis(ticker: str):
         return {"overview": {"symbol": overview_data.get("Symbol"),"name": overview_data.get("Name"),"sector": overview_data.get("Sector"),"price": price,"change": change,"changePercent": change_percent},"daily": daily_data_json,"risk": risk_analysis,"aiSummary": ai_summary}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/portfolio_risk", tags=["Portfel"])
 async def api_get_portfolio_risk():
