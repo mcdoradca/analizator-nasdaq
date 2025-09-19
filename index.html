@@ -138,7 +138,6 @@
                 return await response.json();
             } catch (error) {
                 console.error(`Błąd pobierania (${endpoint}):`, error);
-                // Zmieniono alert na bardziej czytelny komunikat
                 const userFriendlyMessage = error.message.includes("Failed to fetch") 
                     ? "Błąd połączenia z serwerem. Sprawdź swoje połączenie internetowe lub spróbuj ponownie później."
                     : `Błąd komunikacji z serwerem: ${error.message}`;
@@ -151,7 +150,7 @@
             const { is_active, is_completed, last_scanned_index, full_market_list, log } = state;
             dom.revolution.startBtn.disabled = is_active;
             dom.revolution.pauseBtn.disabled = !is_active;
-            const total = full_market_list.length;
+            const total = full_market_list ? full_market_list.length : 0;
             const current = last_scanned_index + 1;
             const progress = total > 0 ? Math.round((current / total) * 100) : 0;
             dom.revolution.progressBar.style.width = `${progress}%`;
@@ -221,10 +220,9 @@
                 const dreamTeam = await fetchFromAPI('/api/portfolio/dream_team');
                 if (!dreamTeam || dreamTeam.length === 0) {
                     dom.dreamTeamList.innerHTML = '<p class="text-gray-500 text-sm px-2">Brak kandydatów. Uruchom Rewolucję AI.</p>';
-                    // KLUCZOWA POPRAWKA: Jeśli Dream Team jest pusty, czyścimy pozostałe listy
                     dom.goldenLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">Oczekuje na Dream Team...</p>';
                     dom.quickLeagueList.innerHTML = '<p class="text-gray-500 text-sm px-2">Oczekuje na Dream Team...</p>';
-                    return false; // Zwracamy false, aby dać znać, że listy nie są gotowe
+                    return false;
                 }
                 dom.dreamTeamList.innerHTML = dreamTeam.map(stock => {
                     const changePercent = stock.changePercent ? parseFloat(stock.changePercent) : 0;
@@ -242,7 +240,7 @@
                             </div>
                         </div>`;
                 }).join('');
-                return true; // Zwracamy true, jeśli Dream Team został załadowany
+                return true;
             } catch (error) {
                 dom.dreamTeamList.innerHTML = '<p class="text-red-400 text-sm px-2">Błąd ładowania listy.</p>';
                 return false;
