@@ -53,17 +53,22 @@ def agent_listy_rynkowej(data_fetcher: DataFetcher) -> list[str]:
     """Pobiera pełną listę wszystkich spółek notowanych na Nasdaq."""
     print("[Rewolucja AI] Agent Listy Rynkowej pobiera listę spółek...")
     try:
-        csv_text = data_fetcher.get_data({"function": "LISTING_STATUS"}, response_format='text')
-        if not csv_text: return []
+        # KLUCZOWA POPRAWKA: Pobieramy dane w formacie tekstowym (CSV)
+        csv_text = data_fetcher.get_data({"function": "LISTING_STATUS"}, response_format='csv')
+        if not csv_text or not isinstance(csv_text, str): 
+            print("[Rewolucja AI] Błąd: Nie otrzymano danych CSV lub dane są w złym formacie.")
+            return []
         
+        # Używamy StringIO, aby pandas mógł odczytać string jak plik
         df = pd.read_csv(StringIO(csv_text))
+        
         nasdaq_stocks = df[(df['exchange'] == 'NASDAQ') & (df['assetType'] == 'Stock') & (df['status'] == 'Active')]
         
         tickers = nasdaq_stocks['symbol'].tolist()
         print(f"[Rewolucja AI] Pomyślnie pobrano {len(tickers)} spółek.")
         return tickers
     except Exception as e:
-        print(f"[Rewolucja AI] Krytyczny błąd podczas pobierania listy spółek: {e}")
+        print(f"[Rewolucja AI] Krytyczny błąd podczas przetwarzania listy spółek: {e}")
         return []
 
 # --- NOWA, ZINTEGROWANA LOGIKA STERUJĄCA ---
@@ -84,7 +89,6 @@ def run_revolution_step(portfolio_manager: PortfolioManager, data_fetcher: DataF
     newly_qualified_objects = []
 
     for i in range(start_index, end_index):
-        # Lepsza obsługa pauzy wewnątrz pętli
         if not portfolio_manager.get_revolution_state()["is_active"]:
             log_messages.append("Wykryto pauzę. Zatrzymuję bieżącą partię.")
             portfolio_manager.save_progress(i - 1, newly_qualified_objects, log_messages)
@@ -92,28 +96,24 @@ def run_revolution_step(portfolio_manager: PortfolioManager, data_fetcher: DataF
 
         ticker = full_list[i]
         
-        # --- FAZA 1: Wstępna selekcja ---
         try:
             quote_data = data_fetcher.get_data({"function": "GLOBAL_QUOTE", "symbol": ticker})
             price = safe_float(get_latest_value(quote_data, 'Global Quote', '05. price'))
             volume = safe_float(get_latest_value(quote_data, 'Global Quote', '06. volume'))
 
             if not (0 < price <= 5.0 and volume > 100000):
-                continue # Spółka nie spełnia kryteriów Fazy 1, idziemy dalej
+                continue
             
             log_messages.append(f"[{ticker}] Faza 1: OK. Cena: ${price:.2f}, Wolumen: {volume}.")
 
-            # --- FAZA 2: Dogłębna analiza (uruchamiana natychmiast) ---
             daily_data = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
             sma_data = data_fetcher.get_data({"function": "SMA", "symbol": ticker, "interval": "daily", "time_period": 50, "series_type": "close"})
             atr_data = data_fetcher.get_data({"function": "ATR", "symbol": ticker, "interval": "daily", "time_period": 14})
             
-            # Lepsza obsługa błędów i braków danych
             if not daily_data or "Time Series (Daily)" not in daily_data or not sma_data or not atr_data:
                 log_messages.append(f"[{ticker}] Faza 2: Odrzucono - brak kompletnych danych analitycznych.")
                 continue
 
-            # Bardziej wiarygodne źródło ceny do analizy
             current_price = safe_float(get_latest_value(daily_data, 'Time Series (Daily)', '4. close'))
 
             score = 0
@@ -123,7 +123,6 @@ def run_revolution_step(portfolio_manager: PortfolioManager, data_fetcher: DataF
 
             if score >= 2:
                 change_str = get_latest_value(quote_data, 'Global Quote', '10. change percent', '0%').replace('%','')
-                # Wzbogacenie danych o aiScore
                 newly_qualified_objects.append({
                     "ticker": ticker, "status": "Nowy Kandydat",
                     "currentPrice": current_price,
@@ -138,13 +137,10 @@ def run_revolution_step(portfolio_manager: PortfolioManager, data_fetcher: DataF
             log_messages.append(f"[{ticker}] Błąd krytyczny: {e}")
             continue
             
-    # Zapis postępów po zakończeniu całej partii
     portfolio_manager.save_progress(end_index - 1, newly_qualified_objects, log_messages)
 
-    # Sprawdzenie, czy zakończono cały proces
     if end_index == len(full_list):
         print("[Rewolucja AI] Cały proces skanowania zakończony.")
         portfolio_manager.complete_revolution()
         
     return portfolio_manager.get_revolution_state()
-
