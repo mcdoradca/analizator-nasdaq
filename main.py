@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 # --- Importy Agentów i Modułów ---
 from data_fetcher import DataFetcher, transform_to_dataframe
@@ -15,6 +15,9 @@ from selection_agent import agent_listy_rynkowej, run_revolution_step
 from backtesting_agent import run_backtest_for_ticker
 from macro_agent import get_macro_climate_analysis, get_market_barometer
 from risk_agent import analyze_single_stock_risk, run_portfolio_risk_analysis
+from zlota_liga_agent import run_zlota_liga_analysis
+from szybka_liga_agent import run_quick_league_scan
+from cockpit_agent import analyze_cockpit_data
 
 # --- Inicjalizacja Aplikacji i Kluczowych Komponentów ---
 app = FastAPI(
@@ -24,15 +27,9 @@ app = FastAPI(
 )
 
 # --- KONFIGURACJA CORS ---
-origins = [
-    "https://analizator-nasdaq-1.onrender.com",
-    "http://localhost",
-    "http://localhost:8000",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Zmieniono na bardziej liberalne na czas developmentu, można zawęzić
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -46,67 +43,26 @@ if not api_key:
 data_fetcher = DataFetcher(api_key=api_key)
 portfolio_manager = PortfolioManager()
 
-# --- NOWA LOGIKA: Pętla Skanowania w Tle ---
-
+# --- Pętla Skanowania w Tle ---
 async def revolution_background_loop():
-    """
-    Ta funkcja działa w tle i wykonuje kolejne kroki skanowania,
-    dopóki proces jest aktywny.
-    """
     print("[Background] Pętla Rewolucji AI uruchomiona.")
     while True:
         state = portfolio_manager.get_revolution_state()
         if state.get("is_active"):
             print(f"[Background] Wykonuję krok Rewolucji. Indeks: {state.get('last_scanned_index')}")
             run_revolution_step(portfolio_manager, data_fetcher)
-        
-        # Czekamy 5 sekund przed kolejnym krokiem, aby nie obciążać serwera
         await asyncio.sleep(5)
 
 @app.on_event("startup")
 async def startup_event():
-    """Uruchom pętlę w tle przy starcie aplikacji."""
     asyncio.create_task(revolution_background_loop())
 
-
-# --- NOWA SEKCJA: Endpointy do Zarządzania Rewolucją AI ---
-
-@app.post("/api/revolution/start", tags=["Rewolucja AI"])
-async def start_revolution_endpoint():
-    """Rozpoczyna lub wznawia proces Rewolucji AI."""
-    state = portfolio_manager.get_revolution_state()
-    if state["is_active"]:
-        raise HTTPException(status_code=400, detail="Rewolucja AI jest już w toku.")
-
-    # Jeśli to nowy start, najpierw pobierz listę rynku
-    if state["last_scanned_index"] == -1 or state["is_completed"]:
-        market_list = agent_listy_rynkowej(data_fetcher)
-        if not market_list:
-            raise HTTPException(status_code=500, detail="Nie udało się pobrać listy rynku z Alpha Vantage.")
-        portfolio_manager.start_revolution(market_list)
-    else:
-        # Wznawiamy z istniejącą listą
-        portfolio_manager.start_revolution(state["full_market_list"])
-        
-    return {"message": "Rewolucja AI została uruchomiona w tle."}
-
-@app.post("/api/revolution/pause", tags=["Rewolucja AI"])
-async def pause_revolution_endpoint():
-    """Wstrzymuje proces Rewolucji AI."""
-    portfolio_manager.pause_revolution()
-    return {"message": "Rewolucja AI została wstrzymana."}
-
-@app.get("/api/revolution/status", tags=["Rewolucja AI"])
-async def get_revolution_status():
-    """Zwraca aktualny stan i postęp Rewolucji AI."""
-    return portfolio_manager.get_revolution_state()
-
-# --- Pozostałe Endpointy (bez zmian) ---
-
+# --- Endpointy Główne ---
 @app.get("/", tags=["Status"])
 def read_root():
     return {"status": "API Analizatora Nasdaq działa poprawnie."}
 
+# --- Endpointy Analizy Rynku (MAKRO) ---
 @app.get("/api/macro_climate", tags=["Analiza Rynku"])
 async def api_get_macro_climate() -> Dict[str, Any]:
     return get_macro_climate_analysis(data_fetcher)
@@ -114,10 +70,85 @@ async def api_get_macro_climate() -> Dict[str, Any]:
 @app.get("/api/market_barometer", tags=["Analiza Rynku"])
 async def api_get_market_barometer() -> Dict[str, Any]:
     return get_market_barometer(data_fetcher)
-    
+
+# --- Endpointy Rewolucji AI ---
+@app.post("/api/revolution/start", tags=["Rewolucja AI"])
+async def start_revolution_endpoint():
+    state = portfolio_manager.get_revolution_state()
+    if state["is_active"]:
+        raise HTTPException(status_code=400, detail="Rewolucja AI jest już w toku.")
+    if state["last_scanned_index"] == -1 or state["is_completed"]:
+        market_list = agent_listy_rynkowej(data_fetcher)
+        if not market_list:
+            raise HTTPException(status_code=500, detail="Nie udało się pobrać listy rynku.")
+        portfolio_manager.start_revolution(market_list)
+    else:
+        portfolio_manager.start_revolution(state["full_market_list"])
+    return {"message": "Rewolucja AI została uruchomiona w tle."}
+
+@app.post("/api/revolution/pause", tags=["Rewolucja AI"])
+async def pause_revolution_endpoint():
+    portfolio_manager.pause_revolution()
+    return {"message": "Rewolucja AI została wstrzymana."}
+
+@app.get("/api/revolution/status", tags=["Rewolucja AI"])
+async def get_revolution_status():
+    return portfolio_manager.get_revolution_state()
+
+# --- Endpointy Portfela i Lig ---
 @app.get("/api/portfolio/dream_team", tags=["Portfel"])
 async def api_get_dream_team() -> list:
     return portfolio_manager.get_dream_team()
+
+@app.get("/api/scan/golden_league", tags=["Portfel"])
+async def api_get_golden_league() -> List[Dict[str, Any]]:
+    tickers = portfolio_manager.get_dream_team_tickers()
+    if not tickers: return []
+    return run_zlota_liga_analysis(tickers, data_fetcher)
+
+@app.get("/api/scan/quick_league", tags=["Portfel"])
+async def api_get_quick_league() -> List[Dict[str, Any]]:
+    tickers = portfolio_manager.get_dream_team_tickers()
+    if not tickers: return []
+    return run_quick_league_scan(tickers, data_fetcher)
+
+# --- Endpointy Analizy Spółki i Ryzyka ---
+@app.get("/api/full_analysis/{ticker}", tags=["Analiza Spółki"])
+async def api_full_analysis(ticker: str) -> Dict[str, Any]:
+    try:
+        overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
+        daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
+        if not overview_data or 'Name' not in overview_data or not daily_data_json:
+            raise HTTPException(status_code=404, detail=f"Brak kompletnych danych dla {ticker}.")
+        
+        df = transform_to_dataframe(daily_data_json)
+        market_df_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"})
+        market_df = transform_to_dataframe(market_df_json)
+
+        risk_analysis = analyze_single_stock_risk(df, market_df, overview_data)
+        
+        time_series = daily_data_json["Time Series (Daily)"]
+        latest_price_data = list(time_series.values())[0]
+        previous_price_data = list(time_series.values())[1]
+        price = float(latest_price_data['4. close'])
+        prev_close = float(previous_price_data['4. close'])
+        change = price - prev_close
+        change_percent = (change / prev_close) * 100 if prev_close != 0 else 0
+        
+        ai_summary = {"recommendation": "Obserwuj", "justification": f"Spółka {overview_data.get('Name')} wykazuje {risk_analysis['riskLevel']} poziom ryzyka."}
+        if risk_analysis['riskLevel'] == 'Niskie' and change > 0:
+            ai_summary['recommendation'] = "Rozważ Pozycję"
+
+        return {
+            "overview": {
+                "symbol": overview_data.get("Symbol"), "name": overview_data.get("Name"),
+                "sector": overview_data.get("Sector"), "price": price,
+                "change": change, "changePercent": change_percent
+            },
+            "daily": daily_data_json, "risk": risk_analysis, "aiSummary": ai_summary
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/portfolio_risk", tags=["Portfel"])
 async def api_get_portfolio_risk() -> Dict[str, Any]:
@@ -126,36 +157,18 @@ async def api_get_portfolio_risk() -> Dict[str, Any]:
         return {"correlation": 0.0, "level": "Brak Danych", "summary": "Portfel musi zawierać min. 2 aktywa.", "color": "text-gray-400"}
     return run_portfolio_risk_analysis(tickers, data_fetcher)
 
-@app.get("/api/full_analysis/{ticker}", tags=["Analiza Spółki"])
-async def api_full_analysis(ticker: str) -> Dict[str, Any]:
-    try:
-        overview_data = data_fetcher.get_data({"function": "OVERVIEW", "symbol": ticker})
-        daily_data_json = data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": ticker, "outputsize": "compact"})
-        if not overview_data or 'Name' not in overview_data: raise HTTPException(status_code=404, detail=f"Brak danych dla {ticker}.")
-        df = transform_to_dataframe(daily_data_json)
-        market_df = transform_to_dataframe(data_fetcher.get_data({"function": "TIME_SERIES_DAILY", "symbol": "QQQ", "outputsize": "compact"}))
-        risk_analysis = analyze_single_stock_risk(df, market_df, overview_data)
-        time_series = daily_data_json["Time Series (Daily)"]
-        latest_price_data = list(time_series.values())[0]
-        previous_price_data = list(time_series.values())[1]
-        price = float(latest_price_data['4. close'])
-        prev_close = float(previous_price_data['4. close'])
-        change = price - prev_close
-        change_percent = (change / prev_close) * 100 if prev_close != 0 else 0
-        ai_summary = {"recommendation": "Obserwuj", "justification": f"Spółka {overview_data.get('Name')} wykazuje {risk_analysis['riskLevel']} poziom ryzyka."}
-        if risk_analysis['riskLevel'] == 'Niskie' and change > 0: ai_summary['recommendation'] = "Rozważ Pozycję"
-        return {"overview": {"symbol": overview_data.get("Symbol"),"name": overview_data.get("Name"),"sector": overview_data.get("Sector"),"price": price,"change": change,"changePercent": change_percent},"daily": daily_data_json,"risk": risk_analysis,"aiSummary": ai_summary}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
+# --- Endpointy Narzędzi Analitycznych ---
 @app.get("/api/run_backtest/{ticker}", tags=["Backtesting"])
 async def api_run_backtest(ticker: str) -> Dict[str, Any]:
     if not ticker:
         raise HTTPException(status_code=400, detail="Nie podano tickera.")
     results = run_backtest_for_ticker(ticker, 365, data_fetcher)
-    total_pnl = sum(trade['pnl'] for trade in results)
-    return {"ticker": ticker, "total_pnl": total_pnl, "trade_count": len(results), "trades": results}
+    return results
+
+@app.get("/api/cockpit_analysis", tags=["Kokpit"])
+async def api_cockpit_analysis() -> Dict[str, Any]:
+    closed_positions = portfolio_manager.get_closed_positions()
+    return analyze_cockpit_data(closed_positions)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
